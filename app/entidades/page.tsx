@@ -219,8 +219,8 @@ export default function EntidadesPage() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex gap-2">
-                        <button onClick={() => setEntidadSeleccionada(e)} className="text-blue-600 hover:underline text-xs">Ver</button>
-                        <button onClick={() => abrirEditar(e)} className="text-gray-500 hover:underline text-xs">Editar</button>
+                        <button onClick={() => setEntidadSeleccionada(e)} className="text-xs text-blue-600 border border-blue-200 px-3 py-1 rounded-full hover:bg-blue-50">Ver</button>
+                        <button onClick={() => abrirEditar(e)} className="text-xs text-gray-600 border border-gray-200 px-3 py-1 rounded-full hover:bg-gray-50">Editar</button>
                       </div>
                     </td>
                   </tr>
