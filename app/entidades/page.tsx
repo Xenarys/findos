@@ -28,6 +28,7 @@ interface Entidad {
   tipo_cuenta: string
   numero_cuenta: string
   moneda_pago: string
+  tipo_persona: string
   activo: boolean
   contactos: Contacto[]
 }
@@ -36,7 +37,8 @@ const formInicial = {
   razon_social: '', nombre_comercial: '', rut: '',
   tipo_cliente: false, tipo_proveedor: false,
   direccion: '', ciudad: '', giro: '', email: '', telefono: '',
-  banco: '', tipo_cuenta: '', numero_cuenta: '', moneda_pago: 'CLP'
+  banco: '', tipo_cuenta: '', numero_cuenta: '', moneda_pago: 'CLP',
+  tipo_persona: 'juridica'
 }
 
 export default function EntidadesPage() {
@@ -85,8 +87,9 @@ export default function EntidadesPage() {
       banco: e.banco || '',
       tipo_cuenta: e.tipo_cuenta || '',
       numero_cuenta: e.numero_cuenta || '',
-      moneda_pago: e.moneda_pago || 'CLP'
-    })
+      moneda_pago: e.moneda_pago || 'CLP',
+      tipo_persona: e.tipo_persona || 'juridica'
+      })
     setContactos(e.contactos?.length > 0
       ? e.contactos.map(c => ({ nombre: c.nombre, cargo: c.cargo || '', email: c.email || '', telefono: c.telefono || '', es_principal: c.es_principal }))
       : [{ nombre: '', cargo: '', email: '', telefono: '', es_principal: true }])
@@ -249,11 +252,28 @@ export default function EntidadesPage() {
               </div>
 
               <div className="grid grid-cols-2 gap-3 mb-4">
-                <div className="col-span-2">
-                  <label className="text-xs text-gray-500 mb-1 block">Razón social *</label>
-                  <input value={form.razon_social} onChange={e => setForm({ ...form, razon_social: e.target.value })}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
-                </div>
+               <div className="col-span-2">
+                 <label className="text-xs text-gray-500 mb-1 block">Tipo de persona *</label>
+                <div className="flex gap-4">
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                   <input type="radio" value="juridica" checked={form.tipo_persona === 'juridica'}
+                    onChange={e => setForm({ ...form, tipo_persona: e.target.value })} />
+                  Persona Jurídica
+                  </label>
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                   <input type="radio" value="natural" checked={form.tipo_persona === 'natural'}
+                    onChange={e => setForm({ ...form, tipo_persona: e.target.value })} />
+                  Persona Natural
+                </label>
+              </div>
+            </div>
+            <div className="col-span-2">
+            <label className="text-xs text-gray-500 mb-1 block">
+               {form.tipo_persona === 'natural' ? 'Razón social / Nombre *' : 'Razón social *'}
+               </label>
+            <input value={form.razon_social} onChange={e => setForm({ ...form, razon_social: e.target.value })}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+            </div>
                 <div className="col-span-2">
                   <label className="text-xs text-gray-500 mb-1 block">Nombre comercial</label>
                   <input value={form.nombre_comercial} onChange={e => setForm({ ...form, nombre_comercial: e.target.value })}
