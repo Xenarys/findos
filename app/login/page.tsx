@@ -20,7 +20,7 @@ export default function LoginPage() {
       setLoading(false)
       return
     }
-    window.location.href = '/entidades'
+    window.location.href = '/seleccionar-empresa'
   }
 
   return (
