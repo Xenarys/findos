@@ -54,6 +54,11 @@ export default function EntidadesPage() {
 
   useEffect(() => { cargarEntidades() }, [])
 
+  async function cerrarSesion() {
+    await supabase.auth.signOut()
+    window.location.href = '/login'
+  }
+
   async function cargarEntidades() {
     setLoading(true)
     const { data, error } = await supabase
@@ -159,6 +164,10 @@ export default function EntidadesPage() {
             <h1 className="text-2xl font-semibold text-gray-800">Clientes y Proveedores</h1>
             <p className="text-sm text-gray-500">{entidades.length} registros</p>
           </div>
+          <button onClick={cerrarSesion}
+            className="text-sm text-gray-500 border border-gray-200 px-4 py-2 rounded-lg hover:bg-red-50 hover:text-red-500 hover:border-red-200 cursor-pointer transition-colors">
+             Cerrar sesión
+          </button>
           <button onClick={() => { setEditando(null); resetForm(); setMostrarForm(true) }}
             className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700">
             + Nuevo
