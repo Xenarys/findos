@@ -38,7 +38,8 @@ const formInicial = {
   tipo_cliente: false, tipo_proveedor: false,
   direccion: '', ciudad: '', giro: '', email: '', telefono: '',
   banco: '', tipo_cuenta: '', numero_cuenta: '', moneda_pago: 'CLP',
-  tipo_persona: 'juridica'
+  tipo_persona: 'juridica',
+  activo: true
 }
 
 export default function EntidadesPage() {
@@ -53,10 +54,9 @@ export default function EntidadesPage() {
   const [contactos, setContactos] = useState([
     { nombre: '', cargo: '', email: '', telefono: '', es_principal: true }
   ])
+  const [bancos, setBancos] = useState<{id: string, nombre: string}[]>([])
 
-const [bancos, setBancos] = useState<{id: string, nombre: string}[]>([])
-
-  useEffect(() => { 
+  useEffect(() => {
     cargarEntidades()
     cargarBancos()
   }, [])
@@ -93,8 +93,9 @@ const [bancos, setBancos] = useState<{id: string, nombre: string}[]>([])
       tipo_cuenta: e.tipo_cuenta || '',
       numero_cuenta: e.numero_cuenta || '',
       moneda_pago: e.moneda_pago || 'CLP',
-      tipo_persona: e.tipo_persona || 'juridica'
-      })
+      tipo_persona: e.tipo_persona || 'juridica',
+      activo: e.activo ?? true
+    })
     setContactos(e.contactos?.length > 0
       ? e.contactos.map(c => ({ nombre: c.nombre, cargo: c.cargo || '', email: c.email || '', telefono: c.telefono || '', es_principal: c.es_principal }))
       : [{ nombre: '', cargo: '', email: '', telefono: '', es_principal: true }])
@@ -102,7 +103,7 @@ const [bancos, setBancos] = useState<{id: string, nombre: string}[]>([])
     setMostrarForm(true)
   }
 
- async function guardarEntidad() {
+  async function guardarEntidad() {
     if (!form.razon_social || !form.rut) return alert('RUT y Razón social son obligatorios')
     if (!form.tipo_cliente && !form.tipo_proveedor) return alert('Debe ser Cliente y/o Proveedor')
 
@@ -132,7 +133,6 @@ const [bancos, setBancos] = useState<{id: string, nombre: string}[]>([])
       if (contactosConId.length > 0) await supabase.from('contactos').insert(contactosConId)
     }
 
- 
     setMostrarForm(false)
     setEditando(null)
     resetForm()
@@ -174,7 +174,6 @@ const [bancos, setBancos] = useState<{id: string, nombre: string}[]>([])
   })
 
   const contactoPrincipal = (e: Entidad) => e.contactos?.find(c => c.es_principal) || e.contactos?.[0]
-
   const nombreMostrar = (e: Entidad) => e.nombre_comercial || e.razon_social
 
   return (
@@ -266,28 +265,28 @@ const [bancos, setBancos] = useState<{id: string, nombre: string}[]>([])
               </div>
 
               <div className="grid grid-cols-2 gap-3 mb-4">
-               <div className="col-span-2">
-                 <label className="text-xs text-gray-500 mb-1 block">Tipo de persona *</label>
-                <div className="flex gap-4">
-                  <label className="flex items-center gap-2 text-sm cursor-pointer">
-                   <input type="radio" value="juridica" checked={form.tipo_persona === 'juridica'}
-                    onChange={e => setForm({ ...form, tipo_persona: e.target.value })} />
-                  Persona Jurídica
+                <div className="col-span-2">
+                  <label className="text-xs text-gray-500 mb-1 block">Tipo de persona *</label>
+                  <div className="flex gap-4">
+                    <label className="flex items-center gap-2 text-sm cursor-pointer">
+                      <input type="radio" value="juridica" checked={form.tipo_persona === 'juridica'}
+                        onChange={e => setForm({ ...form, tipo_persona: e.target.value })} />
+                      Persona Jurídica
+                    </label>
+                    <label className="flex items-center gap-2 text-sm cursor-pointer">
+                      <input type="radio" value="natural" checked={form.tipo_persona === 'natural'}
+                        onChange={e => setForm({ ...form, tipo_persona: e.target.value })} />
+                      Persona Natural
+                    </label>
+                  </div>
+                </div>
+                <div className="col-span-2">
+                  <label className="text-xs text-gray-500 mb-1 block">
+                    {form.tipo_persona === 'natural' ? 'Razón social / Nombre *' : 'Razón social *'}
                   </label>
-                  <label className="flex items-center gap-2 text-sm cursor-pointer">
-                   <input type="radio" value="natural" checked={form.tipo_persona === 'natural'}
-                    onChange={e => setForm({ ...form, tipo_persona: e.target.value })} />
-                  Persona Natural
-                </label>
-              </div>
-            </div>
-            <div className="col-span-2">
-            <label className="text-xs text-gray-500 mb-1 block">
-               {form.tipo_persona === 'natural' ? 'Razón social / Nombre *' : 'Razón social *'}
-               </label>
-            <input value={form.razon_social} onChange={e => setForm({ ...form, razon_social: e.target.value })}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
-            </div>
+                  <input value={form.razon_social} onChange={e => setForm({ ...form, razon_social: e.target.value })}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+                </div>
                 <div className="col-span-2">
                   <label className="text-xs text-gray-500 mb-1 block">Nombre comercial</label>
                   <input value={form.nombre_comercial} onChange={e => setForm({ ...form, nombre_comercial: e.target.value })}
@@ -334,6 +333,10 @@ const [bancos, setBancos] = useState<{id: string, nombre: string}[]>([])
                     <input type="checkbox" checked={form.tipo_proveedor} onChange={e => setForm({ ...form, tipo_proveedor: e.target.checked })} />
                     Proveedor
                   </label>
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input type="checkbox" checked={form.activo} onChange={e => setForm({ ...form, activo: e.target.checked })} />
+                    Activo
+                  </label>
                 </div>
               </div>
 
@@ -342,13 +345,13 @@ const [bancos, setBancos] = useState<{id: string, nombre: string}[]>([])
                 <div className="grid grid-cols-3 gap-3">
                   <div>
                     <label className="text-xs text-gray-500 mb-1 block">Banco</label>
-                     <select value={form.banco} onChange={e => setForm({ ...form, banco: e.target.value })}
-                       className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
-                        <option value="">— seleccione —</option>
+                    <select value={form.banco} onChange={e => setForm({ ...form, banco: e.target.value })}
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
+                      <option value="">— seleccione —</option>
                       {bancos.map(b => (
-                      <option key={b.id} value={b.nombre}>{b.nombre}</option>
-                     ))}
-                </select>
+                        <option key={b.id} value={b.nombre}>{b.nombre}</option>
+                      ))}
+                    </select>
                   </div>
                   <div>
                     <label className="text-xs text-gray-500 mb-1 block">Tipo cuenta</label>
