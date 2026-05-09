@@ -54,7 +54,17 @@ export default function EntidadesPage() {
     { nombre: '', cargo: '', email: '', telefono: '', es_principal: true }
   ])
 
-  useEffect(() => { cargarEntidades() }, [])
+const [bancos, setBancos] = useState<{id: string, nombre: string}[]>([])
+
+  useEffect(() => { 
+    cargarEntidades()
+    cargarBancos()
+  }, [])
+
+  async function cargarBancos() {
+    const { data } = await supabase.from('bancos').select('id, nombre').eq('activo', true).order('nombre')
+    if (data) setBancos(data)
+  }
 
   async function cargarEntidades() {
     setLoading(true)
@@ -332,8 +342,13 @@ export default function EntidadesPage() {
                 <div className="grid grid-cols-3 gap-3">
                   <div>
                     <label className="text-xs text-gray-500 mb-1 block">Banco</label>
-                    <input value={form.banco} onChange={e => setForm({ ...form, banco: e.target.value })}
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+                     <select value={form.banco} onChange={e => setForm({ ...form, banco: e.target.value })}
+                       className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
+                        <option value="">— seleccione —</option>
+                      {bancos.map(b => (
+                      <option key={b.id} value={b.nombre}>{b.nombre}</option>
+                     ))}
+                </select>
                   </div>
                   <div>
                     <label className="text-xs text-gray-500 mb-1 block">Tipo cuenta</label>
