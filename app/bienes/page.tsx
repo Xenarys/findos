@@ -81,7 +81,9 @@ export default function BienesPage() {
       tipo: item.tipo,
       clasificacion: item.clasificacion || '',
       unidad: item.unidad || '',
-      moneda: item.moneda || 'CLP'
+      moneda: item.moneda || 'CLP',
+      afecto_iva_compra: item.afecto_iva_compra ?? true,
+      afecto_iva_venta: item.afecto_iva_venta ?? true
     })
     setMostrarForm(true)
   }
