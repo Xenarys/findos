@@ -11,6 +11,8 @@ interface BienServicio {
   clasificacion: string
   unidad: string
   moneda: string
+  afecto_iva_compra: boolean
+  afecto_iva_venta: boolean
   activo: boolean
 }
 
