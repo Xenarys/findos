@@ -88,17 +88,30 @@ export default function BienesPage() {
     setMostrarForm(true)
   }
 
-  async function guardar() {
+ async function guardar() {
     if (!form.descripcion) return alert('La descripción es obligatoria')
     if (!form.clasificacion) return alert('La clasificación es obligatoria')
     if (!form.unidad) return alert('La unidad es obligatoria')
 
+    const { data: { user } } = await supabase.auth.getUser()
+    const ahora = new Date().toISOString()
+
     if (editando) {
-      const { error } = await supabase.from('bienes_servicios').update(form).eq('id', editando.id)
+      const { error } = await supabase.from('bienes_servicios').update({
+        ...form,
+        updated_by: user?.email,
+        updated_at: ahora
+      }).eq('id', editando.id)
       if (error) return alert('Error: ' + error.message)
     } else {
       const codigo = await generarCodigo(form.tipo)
-      const { error } = await supabase.from('bienes_servicios').insert([{ ...form, codigo }])
+      const { error } = await supabase.from('bienes_servicios').insert([{
+        ...form,
+        codigo,
+        created_by: user?.email,
+        updated_by: user?.email,
+        updated_at: ahora
+      }])
       if (error) return alert('Error: ' + error.message)
     }
 

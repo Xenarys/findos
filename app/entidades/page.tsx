@@ -92,24 +92,37 @@ export default function EntidadesPage() {
     setMostrarForm(true)
   }
 
-  async function guardarEntidad() {
+ async function guardarEntidad() {
     if (!form.razon_social || !form.rut) return alert('RUT y Razón social son obligatorios')
     if (!form.tipo_cliente && !form.tipo_proveedor) return alert('Debe ser Cliente y/o Proveedor')
 
+    const { data: { user } } = await supabase.auth.getUser()
+    const ahora = new Date().toISOString()
+
     if (editando) {
-      const { error } = await supabase.from('entidades').update(form).eq('id', editando.id)
+      const { error } = await supabase.from('entidades').update({
+        ...form,
+        updated_by: user?.email,
+        updated_at: ahora
+      }).eq('id', editando.id)
       if (error) return alert('Error: ' + error.message)
       await supabase.from('contactos').delete().eq('entidad_id', editando.id)
       const contactosConId = contactos.filter(c => c.nombre).map((c, i) => ({ ...c, entidad_id: editando.id, es_principal: i === 0 || c.es_principal }))
       if (contactosConId.length > 0) await supabase.from('contactos').insert(contactosConId)
     } else {
-      const { data, error } = await supabase.from('entidades').insert([form]).select()
+      const { data, error } = await supabase.from('entidades').insert([{
+        ...form,
+        created_by: user?.email,
+        updated_by: user?.email,
+        updated_at: ahora
+      }]).select()
       if (error) return alert('Error: ' + error.message)
       const entidadId = data[0].id
       const contactosConId = contactos.filter(c => c.nombre).map((c, i) => ({ ...c, entidad_id: entidadId, es_principal: i === 0 }))
       if (contactosConId.length > 0) await supabase.from('contactos').insert(contactosConId)
     }
 
+ 
     setMostrarForm(false)
     setEditando(null)
     resetForm()

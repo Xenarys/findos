@@ -74,15 +74,27 @@ export default function ContactosPage() {
     setMostrarForm(true)
   }
 
-  async function guardar() {
+ async function guardar() {
     if (!form.nombre) return alert('El nombre es obligatorio')
     if (!form.entidad_id) return alert('Debes seleccionar una entidad')
 
+    const { data: { user } } = await supabase.auth.getUser()
+    const ahora = new Date().toISOString()
+
     if (editando) {
-      const { error } = await supabase.from('contactos').update(form).eq('id', editando.id)
+      const { error } = await supabase.from('contactos').update({
+        ...form,
+        updated_by: user?.email,
+        updated_at: ahora
+      }).eq('id', editando.id)
       if (error) return alert('Error: ' + error.message)
     } else {
-      const { error } = await supabase.from('contactos').insert([form])
+      const { error } = await supabase.from('contactos').insert([{
+        ...form,
+        created_by: user?.email,
+        updated_by: user?.email,
+        updated_at: ahora
+      }])
       if (error) return alert('Error: ' + error.message)
     }
 
