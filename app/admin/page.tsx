@@ -9,6 +9,15 @@ interface ItemLista {
   activo: boolean
 }
 
+interface Banco {
+  id: string
+  nombre: string
+  codigo_sbif: string
+  codigo_swift: string
+  tipo: string
+  activo: boolean
+}
+
 interface Empresa {
   id: string
   nombre: string
@@ -25,7 +34,7 @@ interface Empresa {
 export default function AdminPage() {
   const [tabActiva, setTabActiva] = useState('empresas')
   const [empresas, setEmpresas] = useState<Empresa[]>([])
-  const [bancos, setBancos] = useState<ItemLista[]>([])
+  const [bancos, setBancos] = useState<Banco[]>([])
   const [monedas, setMonedas] = useState<ItemLista[]>([])
   const [condiciones, setCondiciones] = useState<ItemLista[]>([])
   const [clasificaciones, setClasificaciones] = useState<ItemLista[]>([])
@@ -34,6 +43,7 @@ export default function AdminPage() {
   const [mostrarForm, setMostrarForm] = useState(false)
   const [editandoItem, setEditandoItem] = useState<any>(null)
   const [formNombre, setFormNombre] = useState('')
+  const [formBanco, setFormBanco] = useState({ codigo_sbif: '', codigo_swift: '', tipo: 'nacional', activo: true })
   const [formEmpresa, setFormEmpresa] = useState({
     nombre: '', nombre_comercial: '', rut: '',
     direccion: '', ciudad: '', giro: '', email: '', telefono: '',
@@ -65,7 +75,6 @@ export default function AdminPage() {
     if (!formNombre) return alert('El nombre es obligatorio')
     const { data: { user } } = await supabase.auth.getUser()
     const ahora = new Date().toISOString()
-
     if (editandoItem) {
       await supabase.from(tabla).update({ nombre: formNombre, updated_by: user?.email, updated_at: ahora }).eq('id', editandoItem.id)
     } else {
@@ -77,11 +86,32 @@ export default function AdminPage() {
     cargarTodo()
   }
 
+  async function guardarBanco() {
+    if (!formNombre) return alert('El nombre es obligatorio')
+    const { data: { user } } = await supabase.auth.getUser()
+    const ahora = new Date().toISOString()
+    if (editandoItem) {
+      await supabase.from('bancos').update({
+        nombre: formNombre, ...formBanco,
+        updated_by: user?.email, updated_at: ahora
+      }).eq('id', editandoItem.id)
+    } else {
+      await supabase.from('bancos').insert([{
+        nombre: formNombre, ...formBanco,
+        created_by: user?.email, updated_by: user?.email, updated_at: ahora
+      }])
+    }
+    setMostrarForm(false)
+    setEditandoItem(null)
+    setFormNombre('')
+    setFormBanco({ codigo_sbif: '', codigo_swift: '', tipo: 'nacional', activo: true })
+    cargarTodo()
+  }
+
   async function guardarEmpresa() {
     if (!formEmpresa.nombre || !formEmpresa.rut) return alert('Nombre y RUT son obligatorios')
     const { data: { user } } = await supabase.auth.getUser()
     const ahora = new Date().toISOString()
-
     if (editandoItem) {
       await supabase.from('empresas').update({ ...formEmpresa, updated_by: user?.email, updated_at: ahora }).eq('id', editandoItem.id)
     } else {
@@ -96,6 +126,7 @@ export default function AdminPage() {
   function abrirNuevo() {
     setEditandoItem(null)
     setFormNombre('')
+    setFormBanco({ codigo_sbif: '', codigo_swift: '', tipo: 'nacional', activo: true })
     setFormEmpresa({ nombre: '', nombre_comercial: '', rut: '', direccion: '', ciudad: '', giro: '', email: '', telefono: '', activo: true })
     setMostrarForm(true)
   }
@@ -114,6 +145,14 @@ export default function AdminPage() {
         telefono: item.telefono || '',
         activo: item.activo ?? true
       })
+    } else if (tabActiva === 'bancos') {
+      setFormNombre(item.nombre)
+      setFormBanco({
+        codigo_sbif: item.codigo_sbif || '',
+        codigo_swift: item.codigo_swift || '',
+        tipo: item.tipo || 'nacional',
+        activo: item.activo ?? true
+      })
     } else {
       setFormNombre(item.nombre)
     }
@@ -130,7 +169,6 @@ export default function AdminPage() {
   ]
 
   const tablaMap: any = {
-    bancos: { data: bancos, tabla: 'bancos' },
     monedas: { data: monedas, tabla: 'monedas' },
     condiciones: { data: condiciones, tabla: 'condiciones_pago' },
     clasificaciones: { data: clasificaciones, tabla: 'clasificaciones' },
@@ -145,7 +183,6 @@ export default function AdminPage() {
           <p className="text-sm text-gray-500">Tablas de configuración del sistema</p>
         </div>
 
-        {/* Tabs */}
         <div className="flex gap-1 mb-6 bg-white border border-gray-100 rounded-xl p-1 w-fit">
           {tabs.map(tab => (
             <button key={tab.id} onClick={() => { setTabActiva(tab.id); setMostrarForm(false) }}
@@ -191,6 +228,37 @@ export default function AdminPage() {
                     </td>
                     <td className="px-4 py-3">
                       <button onClick={() => abrirEditar(e)}
+                        className="text-xs text-gray-600 border border-gray-200 px-3 py-1 rounded-full hover:bg-gray-50 transition-colors">
+                        Editar
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : tabActiva === 'bancos' ? (
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  {['Nombre', 'Cód. SBIF', 'SWIFT', 'Tipo', 'Estado', ''].map(h => (
+                    <th key={h} className="text-left px-4 py-3 text-xs font-medium text-gray-500">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {bancos.map(b => (
+                  <tr key={b.id} className="border-t border-gray-50 hover:bg-gray-50">
+                    <td className="px-4 py-3 font-medium">{b.nombre}</td>
+                    <td className="px-4 py-3 font-mono text-xs text-gray-500">{b.codigo_sbif || '—'}</td>
+                    <td className="px-4 py-3 font-mono text-xs text-gray-500">{b.codigo_swift || '—'}</td>
+                    <td className="px-4 py-3 text-gray-600 capitalize">{b.tipo || 'nacional'}</td>
+                    <td className="px-4 py-3">
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${b.activo ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                        {b.activo ? 'Activo' : 'Inactivo'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <button onClick={() => abrirEditar(b)}
                         className="text-xs text-gray-600 border border-gray-200 px-3 py-1 rounded-full hover:bg-gray-50 transition-colors">
                         Editar
                       </button>
@@ -285,17 +353,68 @@ export default function AdminPage() {
                       className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
                   </div>
                   <div className="col-span-2">
-                     <label className="flex items-center gap-2 text-sm cursor-pointer">
-                    <input type="checkbox" 
+                    <label className="flex items-center gap-2 text-sm cursor-pointer">
+                      <input type="checkbox"
                         checked={formEmpresa.activo}
                         onChange={e => setFormEmpresa({ ...formEmpresa, activo: e.target.checked })} />
-                    Empresa activa
+                      Empresa activa
                     </label>
-                </div>
+                  </div>
                   <div className="col-span-2 flex justify-end gap-3 mt-2">
                     <button onClick={() => { setMostrarForm(false); setEditandoItem(null) }}
                       className="px-4 py-2 text-sm border border-gray-200 rounded-lg">Cancelar</button>
                     <button onClick={guardarEmpresa}
+                      className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                      {editandoItem ? 'Actualizar' : 'Guardar'}
+                    </button>
+                  </div>
+                </div>
+              ) : tabActiva === 'bancos' ? (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="col-span-2">
+                    <label className="text-xs text-gray-500 mb-1 block">Nombre *</label>
+                    <input value={formNombre} onChange={e => setFormNombre(e.target.value)}
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">Código SBIF</label>
+                    <input value={formBanco.codigo_sbif} onChange={e => setFormBanco({ ...formBanco, codigo_sbif: e.target.value })}
+                      placeholder="Ej: 001"
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">Código SWIFT</label>
+                    <input value={formBanco.codigo_swift} onChange={e => setFormBanco({ ...formBanco, codigo_swift: e.target.value })}
+                      placeholder="Ej: BCHICLRM"
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+                  </div>
+                 <div className="col-span-2">
+                    <label className="text-xs text-gray-500 mb-1 block">Tipo</label>
+                    <div className="flex gap-4">
+                      <label className="flex items-center gap-2 text-sm cursor-pointer">
+                        <input type="radio" value="nacional" checked={formBanco.tipo === 'nacional'}
+                          onChange={e => setFormBanco({ ...formBanco, tipo: e.target.value })} />
+                        Nacional
+                      </label>
+                      <label className="flex items-center gap-2 text-sm cursor-pointer">
+                        <input type="radio" value="extranjero" checked={formBanco.tipo === 'extranjero'}
+                          onChange={e => setFormBanco({ ...formBanco, tipo: e.target.value })} />
+                        Extranjero
+                      </label>
+                    </div>
+                  </div>
+                  <div className="col-span-2">
+                    <label className="flex items-center gap-2 text-sm cursor-pointer">
+                      <input type="checkbox"
+                        checked={formBanco.activo}
+                        onChange={e => setFormBanco({ ...formBanco, activo: e.target.checked })} />
+                      Banco activo
+                    </label>
+                  </div>
+                  <div className="col-span-2 flex justify-end gap-3 mt-2">
+                    <button onClick={() => { setMostrarForm(false); setEditandoItem(null) }}
+                      className="px-4 py-2 text-sm border border-gray-200 rounded-lg">Cancelar</button>
+                    <button onClick={guardarBanco}
                       className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">
                       {editandoItem ? 'Actualizar' : 'Guardar'}
                     </button>
