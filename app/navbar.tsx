@@ -26,6 +26,7 @@ export default function Navbar() {
     { label: 'Clientes / Proveed.', href: '/entidades' },
     { label: 'Bienes y Servicios', href: '/bienes' },
     { label: 'Contactos', href: '/contactos' },
+    { label: 'Administración', href: '/admin' },
   ]
 
   if (pathname === '/login' || pathname === '/seleccionar-empresa') return null
