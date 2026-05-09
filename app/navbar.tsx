@@ -25,6 +25,7 @@ export default function Navbar() {
   const navItems = [
     { label: 'Clientes / Proveed.', href: '/entidades' },
     { label: 'Bienes y Servicios', href: '/bienes' },
+    { label: 'Contactos', href: '/contactos' },
   ]
 
   if (pathname === '/login' || pathname === '/seleccionar-empresa') return null

@@ -16,7 +16,9 @@ interface BienServicio {
 
 const formInicial = {
   descripcion: '', tipo: 'servicio',
-  clasificacion: '', unidad: '', moneda: 'CLP'
+  clasificacion: '', unidad: '', moneda: 'CLP',
+  afecto_iva_compra: true,
+  afecto_iva_venta: true
 }
 
 export default function BienesPage() {
@@ -235,13 +237,30 @@ export default function BienesPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs text-gray-500 mb-1 block">Moneda</label>
-                  <select value={form.moneda} onChange={e => setForm({ ...form, moneda: e.target.value })}
+                    <label className="text-xs text-gray-500 mb-1 block">Moneda</label>
+                    <select value={form.moneda} onChange={e => setForm({ ...form, moneda: e.target.value })}
                     className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
-                    <option value="CLP">CLP</option>
-                    <option value="USD">USD</option>
-                    <option value="UF">UF</option>
-                  </select>
+                     <option value="CLP">CLP</option>
+                     <option value="USD">USD</option>
+                     <option value="UF">UF</option>
+                     </select>
+                    </div>
+                <div className="col-span-2">
+                 <label className="text-xs text-gray-500 mb-2 block">IVA</label>
+                <div className="flex gap-6">
+                 <label className="flex items-center gap-2 text-sm cursor-pointer">
+               <input type="checkbox"
+                    checked={form.afecto_iva_compra}
+                   onChange={e => setForm({ ...form, afecto_iva_compra: e.target.checked })} />
+                 Afecto IVA compra
+             </label>
+             <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input type="checkbox"
+                   checked={form.afecto_iva_venta}
+                      onChange={e => setForm({ ...form, afecto_iva_venta: e.target.checked })} />
+                 Afecto IVA venta
+                  </label>
+                 </div>
                 </div>
               </div>
 
