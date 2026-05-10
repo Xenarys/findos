@@ -27,6 +27,7 @@ export default function BienesPage() {
   const [items, setItems] = useState<BienServicio[]>([])
   const [clasificaciones, setClasificaciones] = useState<string[]>([])
   const [unidades, setUnidades] = useState<string[]>([])
+  const [monedas, setMonedas] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [busqueda, setBusqueda] = useState('')
   const [filtro, setFiltro] = useState('todos')
@@ -42,8 +43,10 @@ export default function BienesPage() {
   async function cargarListas() {
     const { data: clases } = await supabase.from('clasificaciones').select('nombre').eq('activo', true).order('nombre')
     const { data: units } = await supabase.from('unidades').select('nombre').eq('activo', true).order('nombre')
+    const { data: mones } = await supabase.from('monedas').select('codigo').eq('activo', true).order('nombre')
     if (clases) setClasificaciones(clases.map(c => c.nombre))
     if (units) setUnidades(units.map(u => u.nombre))
+    if (mones) setMonedas(mones.map(m => m.codigo))
   }
 
   async function cargarItems() {
@@ -254,14 +257,15 @@ export default function BienesPage() {
                   </select>
                 </div>
                 <div>
-                    <label className="text-xs text-gray-500 mb-1 block">Moneda</label>
-                    <select value={form.moneda} onChange={e => setForm({ ...form, moneda: e.target.value })}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
-                     <option value="CLP">CLP</option>
-                     <option value="USD">USD</option>
-                     <option value="UF">UF</option>
-                     </select>
-                    </div>
+                <label className="text-xs text-gray-500 mb-1 block">Moneda</label>
+                 <select value={form.moneda} onChange={e => setForm({ ...form, moneda: e.target.value })}
+                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
+                     <option value="">— seleccione —</option>
+                      {monedas.map(m => (
+                      <option key={m} value={m}>{m}</option>
+                     ))}
+                 </select>
+                </div>
                 <div className="col-span-2">
                  <label className="text-xs text-gray-500 mb-2 block">IVA</label>
                 <div className="flex gap-6">

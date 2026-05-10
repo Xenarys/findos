@@ -9,6 +9,28 @@ interface ItemLista {
   activo: boolean
 }
 
+interface Unidad {
+  id: string
+  nombre: string
+  abreviatura: string
+  es_monto_global: boolean
+  activo: boolean
+}
+
+interface Condicion {
+  id: string
+  nombre: string
+  dias: number
+  activo: boolean
+}
+
+interface Moneda {
+  id: string
+  nombre: string
+  codigo: string
+  activo: boolean
+}
+
 interface Banco {
   id: string
   nombre: string
@@ -35,15 +57,18 @@ export default function AdminPage() {
   const [tabActiva, setTabActiva] = useState('empresas')
   const [empresas, setEmpresas] = useState<Empresa[]>([])
   const [bancos, setBancos] = useState<Banco[]>([])
-  const [monedas, setMonedas] = useState<ItemLista[]>([])
-  const [condiciones, setCondiciones] = useState<ItemLista[]>([])
+  const [monedas, setMonedas] = useState<Moneda[]>([])
+  const [condiciones, setCondiciones] = useState<Condicion[]>([])
   const [clasificaciones, setClasificaciones] = useState<ItemLista[]>([])
-  const [unidades, setUnidades] = useState<ItemLista[]>([])
+  const [unidades, setUnidades] = useState<Unidad[]>([])
   const [loading, setLoading] = useState(true)
   const [mostrarForm, setMostrarForm] = useState(false)
   const [editandoItem, setEditandoItem] = useState<any>(null)
   const [formNombre, setFormNombre] = useState('')
   const [formBanco, setFormBanco] = useState({ codigo_sbif: '', codigo_swift: '', tipo: 'nacional', activo: true })
+  const [formMoneda, setFormMoneda] = useState({ codigo: '', activo: true })
+  const [formCondicion, setFormCondicion] = useState({ dias: 0, activo: true })
+  const [formUnidad, setFormUnidad] = useState({ abreviatura: '', es_monto_global: false, activo: true })
   const [formEmpresa, setFormEmpresa] = useState({
     nombre: '', nombre_comercial: '', rut: '',
     direccion: '', ciudad: '', giro: '', email: '', telefono: '',
@@ -58,7 +83,7 @@ export default function AdminPage() {
       supabase.from('empresas').select('*').order('nombre'),
       supabase.from('bancos').select('*').order('nombre'),
       supabase.from('monedas').select('*').order('nombre'),
-      supabase.from('condiciones_pago').select('*').order('nombre'),
+      supabase.from('condiciones_pago').select('*').order('dias'),
       supabase.from('clasificaciones').select('*').order('nombre'),
       supabase.from('unidades').select('*').order('nombre'),
     ])
@@ -83,6 +108,75 @@ export default function AdminPage() {
     setMostrarForm(false)
     setEditandoItem(null)
     setFormNombre('')
+    cargarTodo()
+  }
+
+  async function guardarUnidad() {
+    if (!formNombre) return alert('El nombre es obligatorio')
+    if (!formUnidad.abreviatura) return alert('La abreviatura es obligatoria')
+    if (formUnidad.abreviatura.length > 4) return alert('La abreviatura no puede tener más de 4 caracteres')
+    const { data: { user } } = await supabase.auth.getUser()
+    const ahora = new Date().toISOString()
+    if (editandoItem) {
+      await supabase.from('unidades').update({
+        nombre: formNombre, ...formUnidad,
+        updated_by: user?.email, updated_at: ahora
+      }).eq('id', editandoItem.id)
+    } else {
+      await supabase.from('unidades').insert([{
+        nombre: formNombre, ...formUnidad,
+        created_by: user?.email, updated_by: user?.email, updated_at: ahora
+      }])
+    }
+    setMostrarForm(false)
+    setEditandoItem(null)
+    setFormNombre('')
+    setFormUnidad({ abreviatura: '', es_monto_global: false, activo: true })
+    cargarTodo()
+  }
+
+  async function guardarCondicion() {
+    if (!formNombre) return alert('El nombre es obligatorio')
+    const { data: { user } } = await supabase.auth.getUser()
+    const ahora = new Date().toISOString()
+    if (editandoItem) {
+      await supabase.from('condiciones_pago').update({
+        nombre: formNombre, ...formCondicion,
+        updated_by: user?.email, updated_at: ahora
+      }).eq('id', editandoItem.id)
+    } else {
+      await supabase.from('condiciones_pago').insert([{
+        nombre: formNombre, ...formCondicion,
+        created_by: user?.email, updated_by: user?.email, updated_at: ahora
+      }])
+    }
+    setMostrarForm(false)
+    setEditandoItem(null)
+    setFormNombre('')
+    setFormCondicion({ dias: 0, activo: true })
+    cargarTodo()
+  }
+
+  async function guardarMoneda() {
+    if (!formNombre) return alert('El nombre es obligatorio')
+    if (!formMoneda.codigo) return alert('El código es obligatorio')
+    const { data: { user } } = await supabase.auth.getUser()
+    const ahora = new Date().toISOString()
+    if (editandoItem) {
+      await supabase.from('monedas').update({
+        nombre: formNombre, ...formMoneda,
+        updated_by: user?.email, updated_at: ahora
+      }).eq('id', editandoItem.id)
+    } else {
+      await supabase.from('monedas').insert([{
+        nombre: formNombre, ...formMoneda,
+        created_by: user?.email, updated_by: user?.email, updated_at: ahora
+      }])
+    }
+    setMostrarForm(false)
+    setEditandoItem(null)
+    setFormNombre('')
+    setFormMoneda({ codigo: '', activo: true })
     cargarTodo()
   }
 
@@ -127,6 +221,9 @@ export default function AdminPage() {
     setEditandoItem(null)
     setFormNombre('')
     setFormBanco({ codigo_sbif: '', codigo_swift: '', tipo: 'nacional', activo: true })
+    setFormMoneda({ codigo: '', activo: true })
+    setFormCondicion({ dias: 0, activo: true })
+    setFormUnidad({ abreviatura: '', es_monto_global: false, activo: true })
     setFormEmpresa({ nombre: '', nombre_comercial: '', rut: '', direccion: '', ciudad: '', giro: '', email: '', telefono: '', activo: true })
     setMostrarForm(true)
   }
@@ -153,6 +250,25 @@ export default function AdminPage() {
         tipo: item.tipo || 'nacional',
         activo: item.activo ?? true
       })
+    } else if (tabActiva === 'monedas') {
+      setFormNombre(item.nombre)
+      setFormMoneda({
+        codigo: item.codigo || '',
+        activo: item.activo ?? true
+      })
+    } else if (tabActiva === 'condiciones') {
+      setFormNombre(item.nombre)
+      setFormCondicion({
+        dias: item.dias || 0,
+        activo: item.activo ?? true
+      })
+    } else if (tabActiva === 'unidades') {
+      setFormNombre(item.nombre)
+      setFormUnidad({
+        abreviatura: item.abreviatura || '',
+        es_monto_global: item.es_monto_global ?? false,
+        activo: item.activo ?? true
+      })
     } else {
       setFormNombre(item.nombre)
     }
@@ -169,10 +285,7 @@ export default function AdminPage() {
   ]
 
   const tablaMap: any = {
-    monedas: { data: monedas, tabla: 'monedas' },
-    condiciones: { data: condiciones, tabla: 'condiciones_pago' },
     clasificaciones: { data: clasificaciones, tabla: 'clasificaciones' },
-    unidades: { data: unidades, tabla: 'unidades' },
   }
 
   return (
@@ -259,6 +372,98 @@ export default function AdminPage() {
                     </td>
                     <td className="px-4 py-3">
                       <button onClick={() => abrirEditar(b)}
+                        className="text-xs text-gray-600 border border-gray-200 px-3 py-1 rounded-full hover:bg-gray-50 transition-colors">
+                        Editar
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : tabActiva === 'monedas' ? (
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  {['Nombre', 'Código', 'Estado', ''].map(h => (
+                    <th key={h} className="text-left px-4 py-3 text-xs font-medium text-gray-500">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {monedas.map(m => (
+                  <tr key={m.id} className="border-t border-gray-50 hover:bg-gray-50">
+                    <td className="px-4 py-3 font-medium">{m.nombre}</td>
+                    <td className="px-4 py-3 font-mono text-xs text-gray-500">{m.codigo || '—'}</td>
+                    <td className="px-4 py-3">
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${m.activo ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                        {m.activo ? 'Activo' : 'Inactivo'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <button onClick={() => abrirEditar(m)}
+                        className="text-xs text-gray-600 border border-gray-200 px-3 py-1 rounded-full hover:bg-gray-50 transition-colors">
+                        Editar
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : tabActiva === 'condiciones' ? (
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  {['Nombre', 'Días', 'Estado', ''].map(h => (
+                    <th key={h} className="text-left px-4 py-3 text-xs font-medium text-gray-500">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {condiciones.map(c => (
+                  <tr key={c.id} className="border-t border-gray-50 hover:bg-gray-50">
+                    <td className="px-4 py-3 font-medium">{c.nombre}</td>
+                    <td className="px-4 py-3 text-gray-600">{c.dias} días</td>
+                    <td className="px-4 py-3">
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${c.activo ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                        {c.activo ? 'Activo' : 'Inactivo'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <button onClick={() => abrirEditar(c)}
+                        className="text-xs text-gray-600 border border-gray-200 px-3 py-1 rounded-full hover:bg-gray-50 transition-colors">
+                        Editar
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : tabActiva === 'unidades' ? (
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  {['Nombre', 'Abrev.', 'Tipo gestión', 'Estado', ''].map(h => (
+                    <th key={h} className="text-left px-4 py-3 text-xs font-medium text-gray-500">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {unidades.map(u => (
+                  <tr key={u.id} className="border-t border-gray-50 hover:bg-gray-50">
+                    <td className="px-4 py-3 font-medium">{u.nombre}</td>
+                    <td className="px-4 py-3 font-mono text-xs text-gray-500">{u.abreviatura || '—'}</td>
+                    <td className="px-4 py-3">
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${u.es_monto_global ? 'bg-purple-50 text-purple-700' : 'bg-blue-50 text-blue-700'}`}>
+                        {u.es_monto_global ? 'Monto global' : 'Uni/Valor'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${u.activo ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                        {u.activo ? 'Activo' : 'Inactivo'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <button onClick={() => abrirEditar(u)}
                         className="text-xs text-gray-600 border border-gray-200 px-3 py-1 rounded-full hover:bg-gray-50 transition-colors">
                         Editar
                       </button>
@@ -354,8 +559,7 @@ export default function AdminPage() {
                   </div>
                   <div className="col-span-2">
                     <label className="flex items-center gap-2 text-sm cursor-pointer">
-                      <input type="checkbox"
-                        checked={formEmpresa.activo}
+                      <input type="checkbox" checked={formEmpresa.activo}
                         onChange={e => setFormEmpresa({ ...formEmpresa, activo: e.target.checked })} />
                       Empresa activa
                     </label>
@@ -388,7 +592,7 @@ export default function AdminPage() {
                       placeholder="Ej: BCHICLRM"
                       className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
                   </div>
-                 <div className="col-span-2">
+                  <div className="col-span-2">
                     <label className="text-xs text-gray-500 mb-1 block">Tipo</label>
                     <div className="flex gap-4">
                       <label className="flex items-center gap-2 text-sm cursor-pointer">
@@ -405,8 +609,7 @@ export default function AdminPage() {
                   </div>
                   <div className="col-span-2">
                     <label className="flex items-center gap-2 text-sm cursor-pointer">
-                      <input type="checkbox"
-                        checked={formBanco.activo}
+                      <input type="checkbox" checked={formBanco.activo}
                         onChange={e => setFormBanco({ ...formBanco, activo: e.target.checked })} />
                       Banco activo
                     </label>
@@ -415,6 +618,107 @@ export default function AdminPage() {
                     <button onClick={() => { setMostrarForm(false); setEditandoItem(null) }}
                       className="px-4 py-2 text-sm border border-gray-200 rounded-lg">Cancelar</button>
                     <button onClick={guardarBanco}
+                      className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                      {editandoItem ? 'Actualizar' : 'Guardar'}
+                    </button>
+                  </div>
+                </div>
+              ) : tabActiva === 'monedas' ? (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="col-span-2">
+                    <label className="text-xs text-gray-500 mb-1 block">Nombre *</label>
+                    <input value={formNombre} onChange={e => setFormNombre(e.target.value)}
+                      placeholder="Ej: Peso Chileno"
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">Código *</label>
+                    <input value={formMoneda.codigo} onChange={e => setFormMoneda({ ...formMoneda, codigo: e.target.value })}
+                      placeholder="Ej: CLP"
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+                  </div>
+                  <div className="flex items-end pb-2">
+                    <label className="flex items-center gap-2 text-sm cursor-pointer">
+                      <input type="checkbox" checked={formMoneda.activo}
+                        onChange={e => setFormMoneda({ ...formMoneda, activo: e.target.checked })} />
+                      Moneda activa
+                    </label>
+                  </div>
+                  <div className="col-span-2 flex justify-end gap-3 mt-2">
+                    <button onClick={() => { setMostrarForm(false); setEditandoItem(null) }}
+                      className="px-4 py-2 text-sm border border-gray-200 rounded-lg">Cancelar</button>
+                    <button onClick={guardarMoneda}
+                      className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                      {editandoItem ? 'Actualizar' : 'Guardar'}
+                    </button>
+                  </div>
+                </div>
+              ) : tabActiva === 'condiciones' ? (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="col-span-2">
+                    <label className="text-xs text-gray-500 mb-1 block">Nombre *</label>
+                    <input value={formNombre} onChange={e => setFormNombre(e.target.value)}
+                      placeholder="Ej: 30 días"
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">Días *</label>
+                    <input type="number" value={formCondicion.dias}
+                      onChange={e => setFormCondicion({ ...formCondicion, dias: parseInt(e.target.value) || 0 })}
+                      placeholder="Ej: 30" min="0"
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+                  </div>
+                  <div className="flex items-end pb-2">
+                    <label className="flex items-center gap-2 text-sm cursor-pointer">
+                      <input type="checkbox" checked={formCondicion.activo}
+                        onChange={e => setFormCondicion({ ...formCondicion, activo: e.target.checked })} />
+                      Condición activa
+                    </label>
+                  </div>
+                  <div className="col-span-2 flex justify-end gap-3 mt-2">
+                    <button onClick={() => { setMostrarForm(false); setEditandoItem(null) }}
+                      className="px-4 py-2 text-sm border border-gray-200 rounded-lg">Cancelar</button>
+                    <button onClick={guardarCondicion}
+                      className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                      {editandoItem ? 'Actualizar' : 'Guardar'}
+                    </button>
+                  </div>
+                </div>
+              ) : tabActiva === 'unidades' ? (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="col-span-2">
+                    <label className="text-xs text-gray-500 mb-1 block">Nombre *</label>
+                    <input value={formNombre} onChange={e => setFormNombre(e.target.value)}
+                      placeholder="Ej: Hora"
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">Abreviatura * (máx. 4 caracteres)</label>
+                    <input value={formUnidad.abreviatura}
+                      onChange={e => setFormUnidad({ ...formUnidad, abreviatura: e.target.value.slice(0, 4) })}
+                      placeholder="Ej: hr"
+                      maxLength={4}
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono" />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="flex items-center gap-2 text-sm cursor-pointer">
+                      <input type="checkbox" checked={formUnidad.es_monto_global}
+                        onChange={e => setFormUnidad({ ...formUnidad, es_monto_global: e.target.checked })} />
+                      Gestión por monto global (no por cantidad)
+                    </label>
+                    <p className="text-xs text-gray-400 mt-1 ml-6">Usar para servicios que se confirman por valor en vez de unidades</p>
+                  </div>
+                  <div className="col-span-2">
+                    <label className="flex items-center gap-2 text-sm cursor-pointer">
+                      <input type="checkbox" checked={formUnidad.activo}
+                        onChange={e => setFormUnidad({ ...formUnidad, activo: e.target.checked })} />
+                      Unidad activa
+                    </label>
+                  </div>
+                  <div className="col-span-2 flex justify-end gap-3 mt-2">
+                    <button onClick={() => { setMostrarForm(false); setEditandoItem(null) }}
+                      className="px-4 py-2 text-sm border border-gray-200 rounded-lg">Cancelar</button>
+                    <button onClick={guardarUnidad}
                       className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">
                       {editandoItem ? 'Actualizar' : 'Guardar'}
                     </button>
