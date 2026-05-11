@@ -68,6 +68,10 @@ interface Impuesto {
   nombre: string
   porcentaje: number
   flujo: string
+  tipo: string
+  tipo_calculo: string
+  fecha_desde: string | null
+  fecha_hasta: string | null
   cuenta_id: string | null
   activo: boolean
   plan_cuentas?: { codigo: string; nombre: string }
@@ -122,7 +126,12 @@ export default function AdminPage() {
   const [formCondicion, setFormCondicion] = useState({ dias: 0, activo: true })
   const [formUnidad, setFormUnidad] = useState({ abreviatura: '', es_monto_global: false, activo: true })
   const [formOperacion, setFormOperacion] = useState({ codigo: '', tipo: 'compra', es_inventario: false, activo: true })
-  const [formImpuesto, setFormImpuesto] = useState({ codigo: '', porcentaje: 0, flujo: 'compra', cuenta_id: '', activo: true })
+  const [formImpuesto, setFormImpuesto] = useState({
+    codigo: '', porcentaje: 0, flujo: 'compra',
+    tipo: 'iva', tipo_calculo: 'porcentual',
+    fecha_desde: '', fecha_hasta: '',
+    cuenta_id: '', activo: true
+  })
   const [formCondPrecio, setFormCondPrecio] = useState({ abreviatura: '', tipo: 'descuento', forma_calculo: 'porcentual', nivel: 'ambos', requiere_cuenta: false, cuenta_id: '', activo: true })
   const [formEmpresa, setFormEmpresa] = useState({
     nombre: '', nombre_comercial: '', rut: '',
@@ -223,8 +232,14 @@ export default function AdminPage() {
     const { data: { user } } = await supabase.auth.getUser()
     const ahora = new Date().toISOString()
     const payload = {
-      nombre: formNombre, codigo: formImpuesto.codigo,
-      porcentaje: formImpuesto.porcentaje, flujo: formImpuesto.flujo,
+      nombre: formNombre,
+      codigo: formImpuesto.codigo,
+      porcentaje: formImpuesto.porcentaje,
+      flujo: formImpuesto.flujo,
+      tipo: formImpuesto.tipo,
+      tipo_calculo: formImpuesto.tipo_calculo,
+      fecha_desde: formImpuesto.fecha_desde || null,
+      fecha_hasta: formImpuesto.fecha_hasta || null,
       cuenta_id: formImpuesto.cuenta_id || null,
       activo: formImpuesto.activo,
       updated_by: user?.email, updated_at: ahora
@@ -237,7 +252,7 @@ export default function AdminPage() {
       if (error) return alert('Error: ' + (error.code === '23505' ? 'Ya existe un impuesto con ese código' : error.message))
     }
     setMostrarForm(false); setEditandoItem(null); setFormNombre('')
-    setFormImpuesto({ codigo: '', porcentaje: 0, flujo: 'compra', cuenta_id: '', activo: true })
+    setFormImpuesto({ codigo: '', porcentaje: 0, flujo: 'compra', tipo: 'iva', tipo_calculo: 'porcentual', fecha_desde: '', fecha_hasta: '', cuenta_id: '', activo: true })
     cargarTodo()
   }
 
@@ -355,7 +370,7 @@ export default function AdminPage() {
     setFormCondicion({ dias: 0, activo: true })
     setFormUnidad({ abreviatura: '', es_monto_global: false, activo: true })
     setFormOperacion({ codigo: '', tipo: 'compra', es_inventario: false, activo: true })
-    setFormImpuesto({ codigo: '', porcentaje: 0, flujo: 'compra', cuenta_id: '', activo: true })
+    setFormImpuesto({ codigo: '', porcentaje: 0, flujo: 'compra', tipo: 'iva', tipo_calculo: 'porcentual', fecha_desde: '', fecha_hasta: '', cuenta_id: '', activo: true })
     setFormCondPrecio({ abreviatura: '', tipo: 'descuento', forma_calculo: 'porcentual', nivel: 'ambos', requiere_cuenta: false, cuenta_id: '', activo: true })
     setFormEmpresa({ nombre: '', nombre_comercial: '', rut: '', direccion: '', ciudad: '', giro: '', email: '', telefono: '', activo: true })
     setMostrarForm(true)
@@ -382,7 +397,17 @@ export default function AdminPage() {
       setFormOperacion({ codigo: item.codigo || '', tipo: item.tipo || 'compra', es_inventario: item.es_inventario ?? false, activo: item.activo ?? true })
     } else if (tabActiva === 'impuestos') {
       setFormNombre(item.nombre)
-      setFormImpuesto({ codigo: item.codigo || '', porcentaje: item.porcentaje || 0, flujo: item.flujo || 'compra', cuenta_id: item.cuenta_id || '', activo: item.activo ?? true })
+      setFormImpuesto({
+        codigo: item.codigo || '',
+        porcentaje: item.porcentaje || 0,
+        flujo: item.flujo || 'compra',
+        tipo: item.tipo || 'iva',
+        tipo_calculo: item.tipo_calculo || 'porcentual',
+        fecha_desde: item.fecha_desde || '',
+        fecha_hasta: item.fecha_hasta || '',
+        cuenta_id: item.cuenta_id || '',
+        activo: item.activo ?? true
+      })
     } else if (tabActiva === 'condprecio') {
       setFormNombre(item.nombre)
       setFormCondPrecio({ abreviatura: item.abreviatura || '', tipo: item.tipo || 'descuento', forma_calculo: item.forma_calculo || 'porcentual', nivel: item.nivel || 'ambos', requiere_cuenta: item.requiere_cuenta ?? false, cuenta_id: item.cuenta_id || '', activo: item.activo ?? true })
@@ -457,13 +482,15 @@ export default function AdminPage() {
               <tbody>{operaciones.map(o => <tr key={o.id} className="border-t border-gray-50 hover:bg-gray-50"><td className="px-4 py-3 font-mono text-xs font-bold text-blue-600">{o.codigo}</td><td className="px-4 py-3 font-medium">{o.nombre}</td><td className="px-4 py-3"><span className={`text-xs px-2 py-0.5 rounded-full ${o.tipo === 'compra' ? 'bg-amber-50 text-amber-700' : 'bg-blue-50 text-blue-700'}`}>{o.tipo === 'compra' ? 'Compra' : 'Venta'}</span></td><td className="px-4 py-3"><span className={`text-xs px-2 py-0.5 rounded-full ${o.es_inventario ? 'bg-purple-50 text-purple-700' : 'bg-gray-50 text-gray-500'}`}>{o.es_inventario ? 'Inventario' : 'Gasto'}</span></td><td className="px-4 py-3"><span className={`text-xs px-2 py-0.5 rounded-full ${o.activo ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>{o.activo ? 'Activo' : 'Inactivo'}</span></td><td className="px-4 py-3"><button onClick={() => abrirEditar(o)} className="text-xs text-gray-600 border border-gray-200 px-3 py-1 rounded-full hover:bg-gray-50">Editar</button></td></tr>)}</tbody>
             </table>
           ) : tabActiva === 'impuestos' ? (
-            <table className="w-full text-sm"><thead className="bg-gray-50"><tr>{['Código', 'Nombre', '%', 'Flujo', 'Cuenta', 'Estado', ''].map(h => <th key={h} className="text-left px-4 py-3 text-xs font-medium text-gray-500">{h}</th>)}</tr></thead>
+            <table className="w-full text-sm"><thead className="bg-gray-50"><tr>{['Código', 'Nombre', 'Tipo', 'Cálculo', '%', 'Flujo', 'Vigencia', 'Estado', ''].map(h => <th key={h} className="text-left px-4 py-3 text-xs font-medium text-gray-500">{h}</th>)}</tr></thead>
               <tbody>{impuestos.map(i => <tr key={i.id} className="border-t border-gray-50 hover:bg-gray-50">
                 <td className="px-4 py-3 font-mono text-xs font-bold text-blue-600">{i.codigo}</td>
                 <td className="px-4 py-3 font-medium">{i.nombre}</td>
+                <td className="px-4 py-3"><span className={`text-xs px-2 py-0.5 rounded-full ${i.tipo === 'iva' ? 'bg-blue-50 text-blue-700' : i.tipo === 'retencion' ? 'bg-amber-50 text-amber-700' : 'bg-purple-50 text-purple-700'}`}>{i.tipo === 'iva' ? 'IVA' : i.tipo === 'retencion' ? 'Retención' : 'Adicional'}</span></td>
+                <td className="px-4 py-3 text-xs text-gray-600">{i.tipo_calculo === 'porcentual' ? '%' : i.tipo_calculo === 'monto_fijo' ? 'Fijo' : 'x Uni'}</td>
                 <td className="px-4 py-3 text-gray-600">{i.porcentaje}%</td>
                 <td className="px-4 py-3"><span className={`text-xs px-2 py-0.5 rounded-full ${i.flujo === 'compra' ? 'bg-amber-50 text-amber-700' : 'bg-blue-50 text-blue-700'}`}>{i.flujo === 'compra' ? 'Compra' : 'Venta'}</span></td>
-                <td className="px-4 py-3 text-xs text-gray-500">{i.plan_cuentas ? `${i.plan_cuentas.codigo} · ${i.plan_cuentas.nombre}` : '—'}</td>
+                <td className="px-4 py-3 text-xs text-gray-500 font-mono">{i.fecha_desde ? `${i.fecha_desde} → ${i.fecha_hasta === '9999-12-31' ? '∞' : i.fecha_hasta}` : '—'}</td>
                 <td className="px-4 py-3"><span className={`text-xs px-2 py-0.5 rounded-full ${i.activo ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>{i.activo ? 'Activo' : 'Inactivo'}</span></td>
                 <td className="px-4 py-3"><button onClick={() => abrirEditar(i)} className="text-xs text-gray-600 border border-gray-200 px-3 py-1 rounded-full hover:bg-gray-50">Editar</button></td>
               </tr>)}</tbody>
@@ -551,10 +578,28 @@ export default function AdminPage() {
                 </div>
               ) : tabActiva === 'impuestos' ? (
                 <div className="grid grid-cols-2 gap-3">
-                  <div><label className="text-xs text-gray-500 mb-1 block">Código *</label><input value={formImpuesto.codigo} onChange={e => setFormImpuesto({ ...formImpuesto, codigo: e.target.value.toUpperCase() })} placeholder="Ej: IVA-C" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono" /></div>
-                  <div><label className="text-xs text-gray-500 mb-1 block">Nombre *</label><input value={formNombre} onChange={e => setFormNombre(e.target.value)} placeholder="Ej: IVA Compras" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" /></div>
-                  <div><label className="text-xs text-gray-500 mb-1 block">Porcentaje *</label><input type="number" value={formImpuesto.porcentaje} onChange={e => setFormImpuesto({ ...formImpuesto, porcentaje: parseFloat(e.target.value) || 0 })} placeholder="Ej: 19" step="0.01" min="0" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" /></div>
+                  <div><label className="text-xs text-gray-500 mb-1 block">Código * (máx. 6)</label><input value={formImpuesto.codigo} onChange={e => setFormImpuesto({ ...formImpuesto, codigo: e.target.value.toUpperCase().slice(0, 6) })} placeholder="Ej: IVA-C1" maxLength={6} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono" /></div>
+                  <div><label className="text-xs text-gray-500 mb-1 block">Nombre *</label><input value={formNombre} onChange={e => setFormNombre(e.target.value)} placeholder="Ej: IVA Compras 19%" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" /></div>
+                  <div className="col-span-2">
+                    <label className="text-xs text-gray-500 mb-1 block">Tipo de impuesto</label>
+                    <div className="flex gap-4 mt-1">
+                      <label className="flex items-center gap-2 text-sm cursor-pointer"><input type="radio" value="iva" checked={formImpuesto.tipo === 'iva'} onChange={e => setFormImpuesto({ ...formImpuesto, tipo: e.target.value })} />IVA</label>
+                      <label className="flex items-center gap-2 text-sm cursor-pointer"><input type="radio" value="retencion" checked={formImpuesto.tipo === 'retencion'} onChange={e => setFormImpuesto({ ...formImpuesto, tipo: e.target.value })} />Retención</label>
+                      <label className="flex items-center gap-2 text-sm cursor-pointer"><input type="radio" value="adicional" checked={formImpuesto.tipo === 'adicional'} onChange={e => setFormImpuesto({ ...formImpuesto, tipo: e.target.value })} />Adicional</label>
+                    </div>
+                  </div>
+                  <div className="col-span-2">
+                    <label className="text-xs text-gray-500 mb-1 block">Forma de cálculo</label>
+                    <div className="flex gap-4 mt-1">
+                      <label className="flex items-center gap-2 text-sm cursor-pointer"><input type="radio" value="porcentual" checked={formImpuesto.tipo_calculo === 'porcentual'} onChange={e => setFormImpuesto({ ...formImpuesto, tipo_calculo: e.target.value })} />Porcentual</label>
+                      <label className="flex items-center gap-2 text-sm cursor-pointer"><input type="radio" value="monto_fijo" checked={formImpuesto.tipo_calculo === 'monto_fijo'} onChange={e => setFormImpuesto({ ...formImpuesto, tipo_calculo: e.target.value })} />Monto fijo</label>
+                      <label className="flex items-center gap-2 text-sm cursor-pointer"><input type="radio" value="monto_unidad" checked={formImpuesto.tipo_calculo === 'monto_unidad'} onChange={e => setFormImpuesto({ ...formImpuesto, tipo_calculo: e.target.value })} />Monto x unidad</label>
+                    </div>
+                  </div>
+                  <div><label className="text-xs text-gray-500 mb-1 block">{formImpuesto.tipo_calculo === 'porcentual' ? 'Porcentaje *' : 'Valor *'}</label><input type="number" value={formImpuesto.porcentaje} onChange={e => setFormImpuesto({ ...formImpuesto, porcentaje: parseFloat(e.target.value) || 0 })} step="0.01" min="0" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" /></div>
                   <div><label className="text-xs text-gray-500 mb-1 block">Flujo</label><div className="flex gap-4 mt-2"><label className="flex items-center gap-2 text-sm cursor-pointer"><input type="radio" value="compra" checked={formImpuesto.flujo === 'compra'} onChange={e => setFormImpuesto({ ...formImpuesto, flujo: e.target.value })} />Compra</label><label className="flex items-center gap-2 text-sm cursor-pointer"><input type="radio" value="venta" checked={formImpuesto.flujo === 'venta'} onChange={e => setFormImpuesto({ ...formImpuesto, flujo: e.target.value })} />Venta</label></div></div>
+                  <div><label className="text-xs text-gray-500 mb-1 block">Vigencia desde</label><input type="date" value={formImpuesto.fecha_desde} onChange={e => setFormImpuesto({ ...formImpuesto, fecha_desde: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" /></div>
+                  <div><label className="text-xs text-gray-500 mb-1 block">Vigencia hasta</label><input type="date" value={formImpuesto.fecha_hasta === '9999-12-31' ? '' : formImpuesto.fecha_hasta} onChange={e => setFormImpuesto({ ...formImpuesto, fecha_hasta: e.target.value || '9999-12-31' })} placeholder="Vacío = indefinido" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" /></div>
                   <div className="col-span-2"><label className="text-xs text-gray-500 mb-1 block">Cuenta contable</label>
                     <select value={formImpuesto.cuenta_id} onChange={e => setFormImpuesto({ ...formImpuesto, cuenta_id: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
                       <option value="">— seleccione —</option>
