@@ -26,6 +26,7 @@ export default function Navbar() {
     { label: 'Clientes / Proveed.', href: '/entidades' },
     { label: 'Bienes y Servicios', href: '/bienes' },
     { label: 'Contactos', href: '/contactos' },
+    { label: 'Plan de Cuentas', href: '/plan-cuentas' },
     { label: 'Administración', href: '/admin' },
   ]
 
