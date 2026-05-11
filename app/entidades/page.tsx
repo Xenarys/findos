@@ -30,7 +30,15 @@ interface Entidad {
   moneda_pago: string
   tipo_persona: string
   activo: boolean
+  cuenta_deudor_id: string | null
+  cuenta_acreedor_id: string | null
   contactos: Contacto[]
+}
+
+interface CuentaPC {
+  id: string
+  codigo: string
+  nombre: string
 }
 
 const formInicial = {
@@ -39,7 +47,9 @@ const formInicial = {
   direccion: '', ciudad: '', giro: '', email: '', telefono: '',
   banco: '', tipo_cuenta: '', numero_cuenta: '', moneda_pago: 'CLP',
   tipo_persona: 'juridica',
-  activo: true
+  activo: true,
+  cuenta_deudor_id: '',
+  cuenta_acreedor_id: ''
 }
 
 export default function EntidadesPage() {
@@ -55,15 +65,22 @@ export default function EntidadesPage() {
     { nombre: '', cargo: '', email: '', telefono: '', es_principal: true }
   ])
   const [bancos, setBancos] = useState<{id: string, nombre: string}[]>([])
+  const [cuentasPC, setCuentasPC] = useState<CuentaPC[]>([])
 
   useEffect(() => {
     cargarEntidades()
     cargarBancos()
+    cargarCuentasPC()
   }, [])
 
   async function cargarBancos() {
     const { data } = await supabase.from('bancos').select('id, nombre').eq('activo', true).order('nombre')
     if (data) setBancos(data)
+  }
+
+  async function cargarCuentasPC() {
+    const { data } = await supabase.from('plan_cuentas').select('id, codigo, nombre').eq('activo', true).order('codigo')
+    if (data) setCuentasPC(data)
   }
 
   async function cargarEntidades() {
@@ -74,6 +91,12 @@ export default function EntidadesPage() {
       .order('razon_social')
     if (!error && data) setEntidades(data)
     setLoading(false)
+  }
+
+  function nombreCuenta(id: string | null) {
+    if (!id) return '—'
+    const c = cuentasPC.find(c => c.id === id)
+    return c ? `${c.codigo} · ${c.nombre}` : '—'
   }
 
   function abrirEditar(e: Entidad) {
@@ -94,7 +117,9 @@ export default function EntidadesPage() {
       numero_cuenta: e.numero_cuenta || '',
       moneda_pago: e.moneda_pago || 'CLP',
       tipo_persona: e.tipo_persona || 'juridica',
-      activo: e.activo ?? true
+      activo: e.activo ?? true,
+      cuenta_deudor_id: e.cuenta_deudor_id || '',
+      cuenta_acreedor_id: e.cuenta_acreedor_id || ''
     })
     setContactos(e.contactos?.length > 0
       ? e.contactos.map(c => ({ nombre: c.nombre, cargo: c.cargo || '', email: c.email || '', telefono: c.telefono || '', es_principal: c.es_principal }))
@@ -110,22 +135,24 @@ export default function EntidadesPage() {
     const { data: { user } } = await supabase.auth.getUser()
     const ahora = new Date().toISOString()
 
+    const payload = {
+      ...form,
+      cuenta_deudor_id: form.cuenta_deudor_id || null,
+      cuenta_acreedor_id: form.cuenta_acreedor_id || null,
+      updated_by: user?.email,
+      updated_at: ahora
+    }
+
     if (editando) {
-      const { error } = await supabase.from('entidades').update({
-        ...form,
-        updated_by: user?.email,
-        updated_at: ahora
-      }).eq('id', editando.id)
+      const { error } = await supabase.from('entidades').update(payload).eq('id', editando.id)
       if (error) return alert('Error: ' + error.message)
       await supabase.from('contactos').delete().eq('entidad_id', editando.id)
       const contactosConId = contactos.filter(c => c.nombre).map((c, i) => ({ ...c, entidad_id: editando.id, es_principal: i === 0 || c.es_principal }))
       if (contactosConId.length > 0) await supabase.from('contactos').insert(contactosConId)
     } else {
       const { data, error } = await supabase.from('entidades').insert([{
-        ...form,
+        ...payload,
         created_by: user?.email,
-        updated_by: user?.email,
-        updated_at: ahora
       }]).select()
       if (error) return alert('Error: ' + error.message)
       const entidadId = data[0].id
@@ -340,6 +367,7 @@ export default function EntidadesPage() {
                 </div>
               </div>
 
+              {/* DATOS BANCARIOS */}
               <div className="border-t border-gray-100 pt-4 mb-4">
                 <p className="text-xs font-medium text-gray-500 mb-3">Datos bancarios</p>
                 <div className="grid grid-cols-3 gap-3">
@@ -371,6 +399,34 @@ export default function EntidadesPage() {
                 </div>
               </div>
 
+              {/* DATOS CONTABLES */}
+              <div className="border-t border-gray-100 pt-4 mb-4">
+                <p className="text-xs font-medium text-gray-500 mb-3">Datos contables</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">Cuenta deudor</label>
+                    <select value={form.cuenta_deudor_id} onChange={e => setForm({ ...form, cuenta_deudor_id: e.target.value })}
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
+                      <option value="">— seleccione —</option>
+                      {cuentasPC.map(c => (
+                        <option key={c.id} value={c.id}>{c.codigo} · {c.nombre}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">Cuenta acreedor</label>
+                    <select value={form.cuenta_acreedor_id} onChange={e => setForm({ ...form, cuenta_acreedor_id: e.target.value })}
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
+                      <option value="">— seleccione —</option>
+                      {cuentasPC.map(c => (
+                        <option key={c.id} value={c.id}>{c.codigo} · {c.nombre}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* CONTACTOS */}
               <div className="border-t border-gray-100 pt-4 mb-4">
                 <div className="flex justify-between items-center mb-3">
                   <p className="text-xs font-medium text-gray-500">Contactos</p>
@@ -439,6 +495,22 @@ export default function EntidadesPage() {
                 <div><span className="text-xs text-gray-400 block">Banco</span>{entidadSeleccionada.banco || '—'}</div>
                 <div><span className="text-xs text-gray-400 block">N° cuenta</span>{entidadSeleccionada.numero_cuenta || '—'}</div>
               </div>
+
+              {/* Datos contables en detalle */}
+              <div className="border-t border-gray-100 pt-3 mb-4">
+                <p className="text-xs font-medium text-gray-500 mb-2">Datos contables</p>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <span className="text-xs text-gray-400 block">Cuenta deudor</span>
+                    {nombreCuenta(entidadSeleccionada.cuenta_deudor_id)}
+                  </div>
+                  <div>
+                    <span className="text-xs text-gray-400 block">Cuenta acreedor</span>
+                    {nombreCuenta(entidadSeleccionada.cuenta_acreedor_id)}
+                  </div>
+                </div>
+              </div>
+
               <div className="border-t border-gray-100 pt-4">
                 <p className="text-xs font-medium text-gray-500 mb-3">Contactos</p>
                 {entidadSeleccionada.contactos?.map(c => (
