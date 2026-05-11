@@ -90,6 +90,20 @@ interface CondicionPrecio {
   plan_cuentas?: { codigo: string; nombre: string }
 }
 
+interface EsquemaTributario {
+  id: string
+  nombre: string
+  descripcion: string | null
+  activo: boolean
+}
+
+interface EsquemaImpuesto {
+  id: string
+  esquema_id: string
+  impuesto_id: string
+  impuestos?: { codigo: string; nombre: string; porcentaje: number; flujo: string }
+}
+
 interface CuentaPC {
   id: string
   codigo: string
@@ -116,6 +130,7 @@ export default function AdminPage() {
   const [operaciones, setOperaciones] = useState<Operacion[]>([])
   const [impuestos, setImpuestos] = useState<Impuesto[]>([])
   const [condicionesPrecio, setCondicionesPrecio] = useState<CondicionPrecio[]>([])
+  const [esquemas, setEsquemas] = useState<EsquemaTributario[]>([])
   const [cuentasPC, setCuentasPC] = useState<CuentaPC[]>([])
   const [loading, setLoading] = useState(true)
   const [mostrarForm, setMostrarForm] = useState(false)
@@ -126,19 +141,18 @@ export default function AdminPage() {
   const [formCondicion, setFormCondicion] = useState({ dias: 0, activo: true })
   const [formUnidad, setFormUnidad] = useState({ abreviatura: '', es_monto_global: false, activo: true })
   const [formOperacion, setFormOperacion] = useState({ codigo: '', tipo: 'compra', es_inventario: false, activo: true })
-  const [formImpuesto, setFormImpuesto] = useState({
-    codigo: '', porcentaje: 0, flujo: 'compra',
-    tipo: 'iva', tipo_calculo: 'porcentual',
-    fecha_desde: '', fecha_hasta: '',
-    cuenta_id: '', activo: true
-  })
+  const [formImpuesto, setFormImpuesto] = useState({ codigo: '', porcentaje: 0, flujo: 'compra', tipo: 'iva', tipo_calculo: 'porcentual', fecha_desde: '', fecha_hasta: '', cuenta_id: '', activo: true })
   const [formCondPrecio, setFormCondPrecio] = useState({ abreviatura: '', tipo: 'descuento', forma_calculo: 'porcentual', nivel: 'ambos', requiere_cuenta: false, cuenta_id: '', activo: true })
-  const [formEmpresa, setFormEmpresa] = useState({
-    nombre: '', nombre_comercial: '', rut: '',
-    direccion: '', ciudad: '', giro: '', email: '', telefono: '',
-    activo: true
-  })
+  const [formEsquema, setFormEsquema] = useState({ descripcion: '', activo: true })
+  const [formEmpresa, setFormEmpresa] = useState({ nombre: '', nombre_comercial: '', rut: '', direccion: '', ciudad: '', giro: '', email: '', telefono: '', activo: true })
 
+  // Esquemas tributarios - impuestos
+  const [esquemaSeleccionado, setEsquemaSeleccionado] = useState<EsquemaTributario | null>(null)
+  const [esquemaImpuestos, setEsquemaImpuestos] = useState<EsquemaImpuesto[]>([])
+  const [modalEsquemaImp, setModalEsquemaImp] = useState(false)
+  const [formEsquemaImp, setFormEsquemaImp] = useState('')
+
+  // Clasificaciones con cuentas
   const [clasificacionSeleccionada, setClasificacionSeleccionada] = useState<ItemLista | null>(null)
   const [clasifCuentas, setClasifCuentas] = useState<ClasifCuenta[]>([])
   const [modalClasifCuentas, setModalClasifCuentas] = useState(false)
@@ -149,7 +163,7 @@ export default function AdminPage() {
 
   async function cargarTodo() {
     setLoading(true)
-    const [emp, ban, mon, con, cla, uni, ope, cpc, imp, cp] = await Promise.all([
+    const [emp, ban, mon, con, cla, uni, ope, cpc, imp, cp, esq] = await Promise.all([
       supabase.from('empresas').select('*').order('nombre'),
       supabase.from('bancos').select('*').order('nombre'),
       supabase.from('monedas').select('*').order('nombre'),
@@ -160,6 +174,7 @@ export default function AdminPage() {
       supabase.from('plan_cuentas').select('id, codigo, nombre').eq('activo', true).order('codigo'),
       supabase.from('impuestos').select('*, plan_cuentas(codigo, nombre)').order('codigo'),
       supabase.from('condiciones_precio').select('*, plan_cuentas(codigo, nombre)').order('nombre'),
+      supabase.from('esquemas_tributarios').select('*').order('nombre'),
     ])
     if (emp.data) setEmpresas(emp.data)
     if (ban.data) setBancos(ban.data)
@@ -171,7 +186,70 @@ export default function AdminPage() {
     if (cpc.data) setCuentasPC(cpc.data)
     if (imp.data) setImpuestos(imp.data)
     if (cp.data) setCondicionesPrecio(cp.data)
+    if (esq.data) setEsquemas(esq.data)
     setLoading(false)
+  }
+
+  async function abrirEsquemaImpuestos(esq: EsquemaTributario) {
+    setEsquemaSeleccionado(esq)
+    const { data } = await supabase
+      .from('esquema_impuestos')
+      .select('*, impuestos(codigo, nombre, porcentaje, flujo)')
+      .eq('esquema_id', esq.id)
+    if (data) setEsquemaImpuestos(data)
+    setModalEsquemaImp(true)
+    setFormEsquemaImp('')
+  }
+
+  async function agregarEsquemaImpuesto() {
+    if (!formEsquemaImp) return alert('Selecciona un impuesto')
+    const { data: { user } } = await supabase.auth.getUser()
+    const { error } = await supabase.from('esquema_impuestos').insert([{
+      esquema_id: esquemaSeleccionado!.id,
+      impuesto_id: formEsquemaImp,
+      created_by: user?.email
+    }])
+    if (error) return alert('Error: ' + (error.code === '23505' ? 'Ese impuesto ya está en el esquema' : error.message))
+    setFormEsquemaImp('')
+    if (esquemaSeleccionado) abrirEsquemaImpuestos(esquemaSeleccionado)
+  }
+
+  async function eliminarEsquemaImpuesto(id: string) {
+    if (!confirm('¿Eliminar este impuesto del esquema?')) return
+    await supabase.from('esquema_impuestos').delete().eq('id', id)
+    if (esquemaSeleccionado) abrirEsquemaImpuestos(esquemaSeleccionado)
+  }
+
+  async function duplicarEsquema(esq: EsquemaTributario) {
+    const nuevoNombre = prompt(`Nombre para el nuevo esquema (copia de "${esq.nombre}"):`)
+    if (!nuevoNombre) return
+    const { data: { user } } = await supabase.auth.getUser()
+    const ahora = new Date().toISOString()
+
+    const { data: nuevo, error } = await supabase.from('esquemas_tributarios').insert([{
+      nombre: nuevoNombre,
+      descripcion: esq.descripcion,
+      activo: true,
+      created_by: user?.email, updated_by: user?.email, updated_at: ahora
+    }]).select()
+    if (error) return alert('Error: ' + error.message)
+
+    const { data: impuestosOrigen } = await supabase
+      .from('esquema_impuestos')
+      .select('impuesto_id')
+      .eq('esquema_id', esq.id)
+
+    if (impuestosOrigen && impuestosOrigen.length > 0) {
+      await supabase.from('esquema_impuestos').insert(
+        impuestosOrigen.map(i => ({
+          esquema_id: nuevo[0].id,
+          impuesto_id: i.impuesto_id,
+          created_by: user?.email
+        }))
+      )
+    }
+    cargarTodo()
+    alert(`Esquema "${nuevoNombre}" creado con éxito`)
   }
 
   async function abrirClasifCuentas(clas: ItemLista) {
@@ -191,17 +269,10 @@ export default function AdminPage() {
     const { data: { user } } = await supabase.auth.getUser()
     const ahora = new Date().toISOString()
     if (editandoClasifCuenta) {
-      const { error } = await supabase.from('clasificacion_cuentas').update({
-        operacion_id: formClasifCuenta.operacion_id, cuenta_id: formClasifCuenta.cuenta_id,
-        updated_by: user?.email, updated_at: ahora
-      }).eq('id', editandoClasifCuenta.id)
+      const { error } = await supabase.from('clasificacion_cuentas').update({ operacion_id: formClasifCuenta.operacion_id, cuenta_id: formClasifCuenta.cuenta_id, updated_by: user?.email, updated_at: ahora }).eq('id', editandoClasifCuenta.id)
       if (error) return alert('Error: ' + (error.code === '23505' ? 'Ya existe esa operación en esta clasificación' : error.message))
     } else {
-      const { error } = await supabase.from('clasificacion_cuentas').insert([{
-        clasificacion_id: clasificacionSeleccionada!.id,
-        operacion_id: formClasifCuenta.operacion_id, cuenta_id: formClasifCuenta.cuenta_id,
-        created_by: user?.email, updated_by: user?.email, updated_at: ahora
-      }])
+      const { error } = await supabase.from('clasificacion_cuentas').insert([{ clasificacion_id: clasificacionSeleccionada!.id, operacion_id: formClasifCuenta.operacion_id, cuenta_id: formClasifCuenta.cuenta_id, created_by: user?.email, updated_by: user?.email, updated_at: ahora }])
       if (error) return alert('Error: ' + (error.code === '23505' ? 'Ya existe esa operación en esta clasificación' : error.message))
     }
     setFormClasifCuenta({ operacion_id: '', cuenta_id: '' })
@@ -227,23 +298,26 @@ export default function AdminPage() {
     setMostrarForm(false); setEditandoItem(null); setFormNombre(''); cargarTodo()
   }
 
+  async function guardarEsquema() {
+    if (!formNombre) return alert('El nombre es obligatorio')
+    const { data: { user } } = await supabase.auth.getUser()
+    const ahora = new Date().toISOString()
+    if (editandoItem) {
+      const { error } = await supabase.from('esquemas_tributarios').update({ nombre: formNombre, descripcion: formEsquema.descripcion || null, activo: formEsquema.activo, updated_by: user?.email, updated_at: ahora }).eq('id', editandoItem.id)
+      if (error) return alert('Error: ' + (error.code === '23505' ? 'Ya existe un esquema con ese nombre' : error.message))
+    } else {
+      const { error } = await supabase.from('esquemas_tributarios').insert([{ nombre: formNombre, descripcion: formEsquema.descripcion || null, activo: formEsquema.activo, created_by: user?.email, updated_by: user?.email, updated_at: ahora }])
+      if (error) return alert('Error: ' + (error.code === '23505' ? 'Ya existe un esquema con ese nombre' : error.message))
+    }
+    setMostrarForm(false); setEditandoItem(null); setFormNombre('')
+    setFormEsquema({ descripcion: '', activo: true }); cargarTodo()
+  }
+
   async function guardarImpuesto() {
     if (!formNombre || !formImpuesto.codigo) return alert('Código y nombre son obligatorios')
     const { data: { user } } = await supabase.auth.getUser()
     const ahora = new Date().toISOString()
-    const payload = {
-      nombre: formNombre,
-      codigo: formImpuesto.codigo,
-      porcentaje: formImpuesto.porcentaje,
-      flujo: formImpuesto.flujo,
-      tipo: formImpuesto.tipo,
-      tipo_calculo: formImpuesto.tipo_calculo,
-      fecha_desde: formImpuesto.fecha_desde || null,
-      fecha_hasta: formImpuesto.fecha_hasta || null,
-      cuenta_id: formImpuesto.cuenta_id || null,
-      activo: formImpuesto.activo,
-      updated_by: user?.email, updated_at: ahora
-    }
+    const payload = { nombre: formNombre, codigo: formImpuesto.codigo, porcentaje: formImpuesto.porcentaje, flujo: formImpuesto.flujo, tipo: formImpuesto.tipo, tipo_calculo: formImpuesto.tipo_calculo, fecha_desde: formImpuesto.fecha_desde || null, fecha_hasta: formImpuesto.fecha_hasta || null, cuenta_id: formImpuesto.cuenta_id || null, activo: formImpuesto.activo, updated_by: user?.email, updated_at: ahora }
     if (editandoItem) {
       const { error } = await supabase.from('impuestos').update(payload).eq('id', editandoItem.id)
       if (error) return alert('Error: ' + (error.code === '23505' ? 'Ya existe un impuesto con ese código' : error.message))
@@ -252,22 +326,14 @@ export default function AdminPage() {
       if (error) return alert('Error: ' + (error.code === '23505' ? 'Ya existe un impuesto con ese código' : error.message))
     }
     setMostrarForm(false); setEditandoItem(null); setFormNombre('')
-    setFormImpuesto({ codigo: '', porcentaje: 0, flujo: 'compra', tipo: 'iva', tipo_calculo: 'porcentual', fecha_desde: '', fecha_hasta: '', cuenta_id: '', activo: true })
-    cargarTodo()
+    setFormImpuesto({ codigo: '', porcentaje: 0, flujo: 'compra', tipo: 'iva', tipo_calculo: 'porcentual', fecha_desde: '', fecha_hasta: '', cuenta_id: '', activo: true }); cargarTodo()
   }
 
   async function guardarCondPrecio() {
     if (!formNombre || !formCondPrecio.abreviatura) return alert('Nombre y abreviatura son obligatorios')
     const { data: { user } } = await supabase.auth.getUser()
     const ahora = new Date().toISOString()
-    const payload = {
-      nombre: formNombre, abreviatura: formCondPrecio.abreviatura.toUpperCase(),
-      tipo: formCondPrecio.tipo, forma_calculo: formCondPrecio.forma_calculo,
-      nivel: formCondPrecio.nivel, requiere_cuenta: formCondPrecio.requiere_cuenta,
-      cuenta_id: formCondPrecio.requiere_cuenta ? (formCondPrecio.cuenta_id || null) : null,
-      activo: formCondPrecio.activo,
-      updated_by: user?.email, updated_at: ahora
-    }
+    const payload = { nombre: formNombre, abreviatura: formCondPrecio.abreviatura.toUpperCase(), tipo: formCondPrecio.tipo, forma_calculo: formCondPrecio.forma_calculo, nivel: formCondPrecio.nivel, requiere_cuenta: formCondPrecio.requiere_cuenta, cuenta_id: formCondPrecio.requiere_cuenta ? (formCondPrecio.cuenta_id || null) : null, activo: formCondPrecio.activo, updated_by: user?.email, updated_at: ahora }
     if (editandoItem) {
       const { error } = await supabase.from('condiciones_precio').update(payload).eq('id', editandoItem.id)
       if (error) return alert('Error: ' + (error.code === '23505' ? 'Ya existe una condición con esa abreviatura' : error.message))
@@ -276,8 +342,7 @@ export default function AdminPage() {
       if (error) return alert('Error: ' + (error.code === '23505' ? 'Ya existe una condición con esa abreviatura' : error.message))
     }
     setMostrarForm(false); setEditandoItem(null); setFormNombre('')
-    setFormCondPrecio({ abreviatura: '', tipo: 'descuento', forma_calculo: 'porcentual', nivel: 'ambos', requiere_cuenta: false, cuenta_id: '', activo: true })
-    cargarTodo()
+    setFormCondPrecio({ abreviatura: '', tipo: 'descuento', forma_calculo: 'porcentual', nivel: 'ambos', requiere_cuenta: false, cuenta_id: '', activo: true }); cargarTodo()
   }
 
   async function guardarOperacion() {
@@ -372,6 +437,7 @@ export default function AdminPage() {
     setFormOperacion({ codigo: '', tipo: 'compra', es_inventario: false, activo: true })
     setFormImpuesto({ codigo: '', porcentaje: 0, flujo: 'compra', tipo: 'iva', tipo_calculo: 'porcentual', fecha_desde: '', fecha_hasta: '', cuenta_id: '', activo: true })
     setFormCondPrecio({ abreviatura: '', tipo: 'descuento', forma_calculo: 'porcentual', nivel: 'ambos', requiere_cuenta: false, cuenta_id: '', activo: true })
+    setFormEsquema({ descripcion: '', activo: true })
     setFormEmpresa({ nombre: '', nombre_comercial: '', rut: '', direccion: '', ciudad: '', giro: '', email: '', telefono: '', activo: true })
     setMostrarForm(true)
   }
@@ -381,36 +447,22 @@ export default function AdminPage() {
     if (tabActiva === 'empresas') {
       setFormEmpresa({ nombre: item.nombre || '', nombre_comercial: item.nombre_comercial || '', rut: item.rut || '', direccion: item.direccion || '', ciudad: item.ciudad || '', giro: item.giro || '', email: item.email || '', telefono: item.telefono || '', activo: item.activo ?? true })
     } else if (tabActiva === 'bancos') {
-      setFormNombre(item.nombre)
-      setFormBanco({ codigo_sbif: item.codigo_sbif || '', codigo_swift: item.codigo_swift || '', tipo: item.tipo || 'nacional', activo: item.activo ?? true })
+      setFormNombre(item.nombre); setFormBanco({ codigo_sbif: item.codigo_sbif || '', codigo_swift: item.codigo_swift || '', tipo: item.tipo || 'nacional', activo: item.activo ?? true })
     } else if (tabActiva === 'monedas') {
-      setFormNombre(item.nombre)
-      setFormMoneda({ codigo: item.codigo || '', activo: item.activo ?? true })
+      setFormNombre(item.nombre); setFormMoneda({ codigo: item.codigo || '', activo: item.activo ?? true })
     } else if (tabActiva === 'condiciones') {
-      setFormNombre(item.nombre)
-      setFormCondicion({ dias: item.dias || 0, activo: item.activo ?? true })
+      setFormNombre(item.nombre); setFormCondicion({ dias: item.dias || 0, activo: item.activo ?? true })
     } else if (tabActiva === 'unidades') {
-      setFormNombre(item.nombre)
-      setFormUnidad({ abreviatura: item.abreviatura || '', es_monto_global: item.es_monto_global ?? false, activo: item.activo ?? true })
+      setFormNombre(item.nombre); setFormUnidad({ abreviatura: item.abreviatura || '', es_monto_global: item.es_monto_global ?? false, activo: item.activo ?? true })
     } else if (tabActiva === 'operaciones') {
-      setFormNombre(item.nombre)
-      setFormOperacion({ codigo: item.codigo || '', tipo: item.tipo || 'compra', es_inventario: item.es_inventario ?? false, activo: item.activo ?? true })
+      setFormNombre(item.nombre); setFormOperacion({ codigo: item.codigo || '', tipo: item.tipo || 'compra', es_inventario: item.es_inventario ?? false, activo: item.activo ?? true })
     } else if (tabActiva === 'impuestos') {
       setFormNombre(item.nombre)
-      setFormImpuesto({
-        codigo: item.codigo || '',
-        porcentaje: item.porcentaje || 0,
-        flujo: item.flujo || 'compra',
-        tipo: item.tipo || 'iva',
-        tipo_calculo: item.tipo_calculo || 'porcentual',
-        fecha_desde: item.fecha_desde || '',
-        fecha_hasta: item.fecha_hasta || '',
-        cuenta_id: item.cuenta_id || '',
-        activo: item.activo ?? true
-      })
+      setFormImpuesto({ codigo: item.codigo || '', porcentaje: item.porcentaje || 0, flujo: item.flujo || 'compra', tipo: item.tipo || 'iva', tipo_calculo: item.tipo_calculo || 'porcentual', fecha_desde: item.fecha_desde || '', fecha_hasta: item.fecha_hasta || '', cuenta_id: item.cuenta_id || '', activo: item.activo ?? true })
     } else if (tabActiva === 'condprecio') {
-      setFormNombre(item.nombre)
-      setFormCondPrecio({ abreviatura: item.abreviatura || '', tipo: item.tipo || 'descuento', forma_calculo: item.forma_calculo || 'porcentual', nivel: item.nivel || 'ambos', requiere_cuenta: item.requiere_cuenta ?? false, cuenta_id: item.cuenta_id || '', activo: item.activo ?? true })
+      setFormNombre(item.nombre); setFormCondPrecio({ abreviatura: item.abreviatura || '', tipo: item.tipo || 'descuento', forma_calculo: item.forma_calculo || 'porcentual', nivel: item.nivel || 'ambos', requiere_cuenta: item.requiere_cuenta ?? false, cuenta_id: item.cuenta_id || '', activo: item.activo ?? true })
+    } else if (tabActiva === 'esquemas') {
+      setFormNombre(item.nombre); setFormEsquema({ descripcion: item.descripcion || '', activo: item.activo ?? true })
     } else {
       setFormNombre(item.nombre)
     }
@@ -426,6 +478,7 @@ export default function AdminPage() {
     { id: 'unidades', label: 'Unidades' },
     { id: 'operaciones', label: 'Operaciones contables' },
     { id: 'impuestos', label: 'Impuestos' },
+    { id: 'esquemas', label: 'Esquemas tributarios' },
     { id: 'condprecio', label: 'Condiciones de precio' },
   ]
 
@@ -449,10 +502,7 @@ export default function AdminPage() {
         <div className="bg-white rounded-xl border border-gray-100 p-6">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-base font-medium text-gray-700">{tabs.find(t => t.id === tabActiva)?.label}</h2>
-            <button onClick={tabActiva === 'clasificaciones' ? () => { setEditandoItem(null); setFormNombre(''); setMostrarForm(true) } : abrirNuevo}
-              className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700">
-              + Nuevo
-            </button>
+            <button onClick={abrirNuevo} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700">+ Nuevo</button>
           </div>
 
           {loading ? (
@@ -495,6 +545,21 @@ export default function AdminPage() {
                 <td className="px-4 py-3"><button onClick={() => abrirEditar(i)} className="text-xs text-gray-600 border border-gray-200 px-3 py-1 rounded-full hover:bg-gray-50">Editar</button></td>
               </tr>)}</tbody>
             </table>
+          ) : tabActiva === 'esquemas' ? (
+            <table className="w-full text-sm"><thead className="bg-gray-50"><tr>{['Nombre', 'Descripción', 'Estado', ''].map(h => <th key={h} className="text-left px-4 py-3 text-xs font-medium text-gray-500">{h}</th>)}</tr></thead>
+              <tbody>{esquemas.map(e => <tr key={e.id} className="border-t border-gray-50 hover:bg-gray-50">
+                <td className="px-4 py-3 font-medium">{e.nombre}</td>
+                <td className="px-4 py-3 text-xs text-gray-500">{e.descripcion || '—'}</td>
+                <td className="px-4 py-3"><span className={`text-xs px-2 py-0.5 rounded-full ${e.activo ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>{e.activo ? 'Activo' : 'Inactivo'}</span></td>
+                <td className="px-4 py-3">
+                  <div className="flex gap-2">
+                    <button onClick={() => abrirEditar(e)} className="text-xs text-gray-600 border border-gray-200 px-3 py-1 rounded-full hover:bg-gray-50">Editar</button>
+                    <button onClick={() => abrirEsquemaImpuestos(e)} className="text-xs text-blue-600 border border-blue-200 px-3 py-1 rounded-full hover:bg-blue-50">Impuestos</button>
+                    <button onClick={() => duplicarEsquema(e)} className="text-xs text-purple-600 border border-purple-200 px-3 py-1 rounded-full hover:bg-purple-50">Duplicar</button>
+                  </div>
+                </td>
+              </tr>)}</tbody>
+            </table>
           ) : tabActiva === 'condprecio' ? (
             <table className="w-full text-sm"><thead className="bg-gray-50"><tr>{['Nombre', 'Abrev.', 'Tipo', 'Cálculo', 'Nivel', 'Estado', ''].map(h => <th key={h} className="text-left px-4 py-3 text-xs font-medium text-gray-500">{h}</th>)}</tr></thead>
               <tbody>{condicionesPrecio.map(cp => <tr key={cp.id} className="border-t border-gray-50 hover:bg-gray-50">
@@ -523,7 +588,14 @@ export default function AdminPage() {
                 <button onClick={() => { setMostrarForm(false); setEditandoItem(null) }} className="text-gray-400 hover:text-gray-600">✕</button>
               </div>
 
-              {tabActiva === 'empresas' ? (
+              {tabActiva === 'esquemas' ? (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="col-span-2"><label className="text-xs text-gray-500 mb-1 block">Nombre *</label><input value={formNombre} onChange={e => setFormNombre(e.target.value)} placeholder="Ej: Honorarios" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" /></div>
+                  <div className="col-span-2"><label className="text-xs text-gray-500 mb-1 block">Descripción</label><input value={formEsquema.descripcion} onChange={e => setFormEsquema({ ...formEsquema, descripcion: e.target.value })} placeholder="Descripción del esquema" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" /></div>
+                  <div className="col-span-2"><label className="flex items-center gap-2 text-sm cursor-pointer"><input type="checkbox" checked={formEsquema.activo} onChange={e => setFormEsquema({ ...formEsquema, activo: e.target.checked })} />Esquema activo</label></div>
+                  <div className="col-span-2 flex justify-end gap-3 mt-2"><button onClick={() => { setMostrarForm(false); setEditandoItem(null) }} className="px-4 py-2 text-sm border border-gray-200 rounded-lg">Cancelar</button><button onClick={guardarEsquema} className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">{editandoItem ? 'Actualizar' : 'Guardar'}</button></div>
+                </div>
+              ) : tabActiva === 'empresas' ? (
                 <div className="grid grid-cols-2 gap-3">
                   <div className="col-span-2"><label className="text-xs text-gray-500 mb-1 block">Nombre *</label><input value={formEmpresa.nombre} onChange={e => setFormEmpresa({ ...formEmpresa, nombre: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" /></div>
                   <div className="col-span-2"><label className="text-xs text-gray-500 mb-1 block">Nombre comercial</label><input value={formEmpresa.nombre_comercial} onChange={e => setFormEmpresa({ ...formEmpresa, nombre_comercial: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" /></div>
@@ -580,32 +652,13 @@ export default function AdminPage() {
                 <div className="grid grid-cols-2 gap-3">
                   <div><label className="text-xs text-gray-500 mb-1 block">Código * (máx. 6)</label><input value={formImpuesto.codigo} onChange={e => setFormImpuesto({ ...formImpuesto, codigo: e.target.value.toUpperCase().slice(0, 6) })} placeholder="Ej: IVA-C1" maxLength={6} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono" /></div>
                   <div><label className="text-xs text-gray-500 mb-1 block">Nombre *</label><input value={formNombre} onChange={e => setFormNombre(e.target.value)} placeholder="Ej: IVA Compras 19%" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" /></div>
-                  <div className="col-span-2">
-                    <label className="text-xs text-gray-500 mb-1 block">Tipo de impuesto</label>
-                    <div className="flex gap-4 mt-1">
-                      <label className="flex items-center gap-2 text-sm cursor-pointer"><input type="radio" value="iva" checked={formImpuesto.tipo === 'iva'} onChange={e => setFormImpuesto({ ...formImpuesto, tipo: e.target.value })} />IVA</label>
-                      <label className="flex items-center gap-2 text-sm cursor-pointer"><input type="radio" value="retencion" checked={formImpuesto.tipo === 'retencion'} onChange={e => setFormImpuesto({ ...formImpuesto, tipo: e.target.value })} />Retención</label>
-                      <label className="flex items-center gap-2 text-sm cursor-pointer"><input type="radio" value="adicional" checked={formImpuesto.tipo === 'adicional'} onChange={e => setFormImpuesto({ ...formImpuesto, tipo: e.target.value })} />Adicional</label>
-                    </div>
-                  </div>
-                  <div className="col-span-2">
-                    <label className="text-xs text-gray-500 mb-1 block">Forma de cálculo</label>
-                    <div className="flex gap-4 mt-1">
-                      <label className="flex items-center gap-2 text-sm cursor-pointer"><input type="radio" value="porcentual" checked={formImpuesto.tipo_calculo === 'porcentual'} onChange={e => setFormImpuesto({ ...formImpuesto, tipo_calculo: e.target.value })} />Porcentual</label>
-                      <label className="flex items-center gap-2 text-sm cursor-pointer"><input type="radio" value="monto_fijo" checked={formImpuesto.tipo_calculo === 'monto_fijo'} onChange={e => setFormImpuesto({ ...formImpuesto, tipo_calculo: e.target.value })} />Monto fijo</label>
-                      <label className="flex items-center gap-2 text-sm cursor-pointer"><input type="radio" value="monto_unidad" checked={formImpuesto.tipo_calculo === 'monto_unidad'} onChange={e => setFormImpuesto({ ...formImpuesto, tipo_calculo: e.target.value })} />Monto x unidad</label>
-                    </div>
-                  </div>
+                  <div className="col-span-2"><label className="text-xs text-gray-500 mb-1 block">Tipo de impuesto</label><div className="flex gap-4 mt-1"><label className="flex items-center gap-2 text-sm cursor-pointer"><input type="radio" value="iva" checked={formImpuesto.tipo === 'iva'} onChange={e => setFormImpuesto({ ...formImpuesto, tipo: e.target.value })} />IVA</label><label className="flex items-center gap-2 text-sm cursor-pointer"><input type="radio" value="retencion" checked={formImpuesto.tipo === 'retencion'} onChange={e => setFormImpuesto({ ...formImpuesto, tipo: e.target.value })} />Retención</label><label className="flex items-center gap-2 text-sm cursor-pointer"><input type="radio" value="adicional" checked={formImpuesto.tipo === 'adicional'} onChange={e => setFormImpuesto({ ...formImpuesto, tipo: e.target.value })} />Adicional</label></div></div>
+                  <div className="col-span-2"><label className="text-xs text-gray-500 mb-1 block">Forma de cálculo</label><div className="flex gap-4 mt-1"><label className="flex items-center gap-2 text-sm cursor-pointer"><input type="radio" value="porcentual" checked={formImpuesto.tipo_calculo === 'porcentual'} onChange={e => setFormImpuesto({ ...formImpuesto, tipo_calculo: e.target.value })} />Porcentual</label><label className="flex items-center gap-2 text-sm cursor-pointer"><input type="radio" value="monto_fijo" checked={formImpuesto.tipo_calculo === 'monto_fijo'} onChange={e => setFormImpuesto({ ...formImpuesto, tipo_calculo: e.target.value })} />Monto fijo</label><label className="flex items-center gap-2 text-sm cursor-pointer"><input type="radio" value="monto_unidad" checked={formImpuesto.tipo_calculo === 'monto_unidad'} onChange={e => setFormImpuesto({ ...formImpuesto, tipo_calculo: e.target.value })} />Monto x unidad</label></div></div>
                   <div><label className="text-xs text-gray-500 mb-1 block">{formImpuesto.tipo_calculo === 'porcentual' ? 'Porcentaje *' : 'Valor *'}</label><input type="number" value={formImpuesto.porcentaje} onChange={e => setFormImpuesto({ ...formImpuesto, porcentaje: parseFloat(e.target.value) || 0 })} step="0.01" min="0" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" /></div>
                   <div><label className="text-xs text-gray-500 mb-1 block">Flujo</label><div className="flex gap-4 mt-2"><label className="flex items-center gap-2 text-sm cursor-pointer"><input type="radio" value="compra" checked={formImpuesto.flujo === 'compra'} onChange={e => setFormImpuesto({ ...formImpuesto, flujo: e.target.value })} />Compra</label><label className="flex items-center gap-2 text-sm cursor-pointer"><input type="radio" value="venta" checked={formImpuesto.flujo === 'venta'} onChange={e => setFormImpuesto({ ...formImpuesto, flujo: e.target.value })} />Venta</label></div></div>
                   <div><label className="text-xs text-gray-500 mb-1 block">Vigencia desde</label><input type="date" value={formImpuesto.fecha_desde} onChange={e => setFormImpuesto({ ...formImpuesto, fecha_desde: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" /></div>
                   <div><label className="text-xs text-gray-500 mb-1 block">Vigencia hasta</label><input type="date" value={formImpuesto.fecha_hasta === '9999-12-31' ? '' : formImpuesto.fecha_hasta} onChange={e => setFormImpuesto({ ...formImpuesto, fecha_hasta: e.target.value || '9999-12-31' })} placeholder="Vacío = indefinido" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" /></div>
-                  <div className="col-span-2"><label className="text-xs text-gray-500 mb-1 block">Cuenta contable</label>
-                    <select value={formImpuesto.cuenta_id} onChange={e => setFormImpuesto({ ...formImpuesto, cuenta_id: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
-                      <option value="">— seleccione —</option>
-                      {cuentasPC.map(c => <option key={c.id} value={c.id}>{c.codigo} · {c.nombre}</option>)}
-                    </select>
-                  </div>
+                  <div className="col-span-2"><label className="text-xs text-gray-500 mb-1 block">Cuenta contable</label><select value={formImpuesto.cuenta_id} onChange={e => setFormImpuesto({ ...formImpuesto, cuenta_id: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"><option value="">— seleccione —</option>{cuentasPC.map(c => <option key={c.id} value={c.id}>{c.codigo} · {c.nombre}</option>)}</select></div>
                   <div className="col-span-2"><label className="flex items-center gap-2 text-sm cursor-pointer"><input type="checkbox" checked={formImpuesto.activo} onChange={e => setFormImpuesto({ ...formImpuesto, activo: e.target.checked })} />Impuesto activo</label></div>
                   <div className="col-span-2 flex justify-end gap-3 mt-2"><button onClick={() => { setMostrarForm(false); setEditandoItem(null) }} className="px-4 py-2 text-sm border border-gray-200 rounded-lg">Cancelar</button><button onClick={guardarImpuesto} className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">{editandoItem ? 'Actualizar' : 'Guardar'}</button></div>
                 </div>
@@ -617,14 +670,7 @@ export default function AdminPage() {
                   <div className="col-span-2"><label className="text-xs text-gray-500 mb-1 block">Forma de cálculo</label><div className="flex gap-3 flex-wrap mt-1"><label className="flex items-center gap-2 text-sm cursor-pointer"><input type="radio" value="porcentual" checked={formCondPrecio.forma_calculo === 'porcentual'} onChange={e => setFormCondPrecio({ ...formCondPrecio, forma_calculo: e.target.value })} />Porcentual</label><label className="flex items-center gap-2 text-sm cursor-pointer"><input type="radio" value="monto_fijo" checked={formCondPrecio.forma_calculo === 'monto_fijo'} onChange={e => setFormCondPrecio({ ...formCondPrecio, forma_calculo: e.target.value })} />Monto fijo</label><label className="flex items-center gap-2 text-sm cursor-pointer"><input type="radio" value="monto_unidad" checked={formCondPrecio.forma_calculo === 'monto_unidad'} onChange={e => setFormCondPrecio({ ...formCondPrecio, forma_calculo: e.target.value })} />Monto x unidad</label></div></div>
                   <div className="col-span-2"><label className="text-xs text-gray-500 mb-1 block">Nivel de aplicación</label><div className="flex gap-3 mt-1"><label className="flex items-center gap-2 text-sm cursor-pointer"><input type="radio" value="item" checked={formCondPrecio.nivel === 'item'} onChange={e => setFormCondPrecio({ ...formCondPrecio, nivel: e.target.value })} />Solo ítem</label><label className="flex items-center gap-2 text-sm cursor-pointer"><input type="radio" value="cabecera" checked={formCondPrecio.nivel === 'cabecera'} onChange={e => setFormCondPrecio({ ...formCondPrecio, nivel: e.target.value })} />Solo cabecera</label><label className="flex items-center gap-2 text-sm cursor-pointer"><input type="radio" value="ambos" checked={formCondPrecio.nivel === 'ambos'} onChange={e => setFormCondPrecio({ ...formCondPrecio, nivel: e.target.value })} />Ambos</label></div></div>
                   <div className="col-span-2"><label className="flex items-center gap-2 text-sm cursor-pointer"><input type="checkbox" checked={formCondPrecio.requiere_cuenta} onChange={e => setFormCondPrecio({ ...formCondPrecio, requiere_cuenta: e.target.checked })} />Requiere cuenta contable específica</label></div>
-                  {formCondPrecio.requiere_cuenta && (
-                    <div className="col-span-2"><label className="text-xs text-gray-500 mb-1 block">Cuenta contable *</label>
-                      <select value={formCondPrecio.cuenta_id} onChange={e => setFormCondPrecio({ ...formCondPrecio, cuenta_id: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
-                        <option value="">— seleccione —</option>
-                        {cuentasPC.map(c => <option key={c.id} value={c.id}>{c.codigo} · {c.nombre}</option>)}
-                      </select>
-                    </div>
-                  )}
+                  {formCondPrecio.requiere_cuenta && <div className="col-span-2"><label className="text-xs text-gray-500 mb-1 block">Cuenta contable *</label><select value={formCondPrecio.cuenta_id} onChange={e => setFormCondPrecio({ ...formCondPrecio, cuenta_id: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"><option value="">— seleccione —</option>{cuentasPC.map(c => <option key={c.id} value={c.id}>{c.codigo} · {c.nombre}</option>)}</select></div>}
                   <div className="col-span-2"><label className="flex items-center gap-2 text-sm cursor-pointer"><input type="checkbox" checked={formCondPrecio.activo} onChange={e => setFormCondPrecio({ ...formCondPrecio, activo: e.target.checked })} />Condición activa</label></div>
                   <div className="col-span-2 flex justify-end gap-3 mt-2"><button onClick={() => { setMostrarForm(false); setEditandoItem(null) }} className="px-4 py-2 text-sm border border-gray-200 rounded-lg">Cancelar</button><button onClick={guardarCondPrecio} className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">{editandoItem ? 'Actualizar' : 'Guardar'}</button></div>
                 </div>
@@ -634,6 +680,44 @@ export default function AdminPage() {
                   <input value={formNombre} onChange={e => setFormNombre(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mb-4" />
                   <div className="flex justify-end gap-3"><button onClick={() => { setMostrarForm(false); setEditandoItem(null) }} className="px-4 py-2 text-sm border border-gray-200 rounded-lg">Cancelar</button><button onClick={() => guardarItem('clasificaciones')} className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">{editandoItem ? 'Actualizar' : 'Guardar'}</button></div>
                 </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* MODAL IMPUESTOS POR ESQUEMA */}
+        {modalEsquemaImp && esquemaSeleccionado && (
+          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl w-full max-w-2xl p-6 max-h-[85vh] overflow-y-auto">
+              <div className="flex justify-between items-center mb-4">
+                <div><h2 className="text-lg font-semibold">Impuestos del esquema</h2><p className="text-sm text-gray-500">{esquemaSeleccionado.nombre}</p></div>
+                <button onClick={() => { setModalEsquemaImp(false); setEsquemaSeleccionado(null) }} className="text-gray-400 hover:text-gray-600">✕</button>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-4 mb-4">
+                <p className="text-xs font-medium text-gray-500 mb-3">Agregar impuesto al esquema</p>
+                <div className="flex gap-3">
+                  <select value={formEsquemaImp} onChange={e => setFormEsquemaImp(e.target.value)} className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white">
+                    <option value="">— seleccione impuesto —</option>
+                    {impuestos.filter(i => i.activo && !esquemaImpuestos.some(ei => ei.impuesto_id === i.id)).map(i => (
+                      <option key={i.id} value={i.id}>{i.codigo} · {i.nombre} ({i.porcentaje}%)</option>
+                    ))}
+                  </select>
+                  <button onClick={agregarEsquemaImpuesto} className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">Agregar</button>
+                </div>
+              </div>
+              {esquemaImpuestos.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-4">No hay impuestos en este esquema</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50"><tr>{['Código', 'Nombre', '%', 'Flujo', ''].map(h => <th key={h} className="text-left px-4 py-2 text-xs font-medium text-gray-500">{h}</th>)}</tr></thead>
+                  <tbody>{esquemaImpuestos.map(ei => <tr key={ei.id} className="border-t border-gray-50 hover:bg-gray-50">
+                    <td className="px-4 py-2 font-mono text-xs font-bold text-blue-600">{ei.impuestos?.codigo}</td>
+                    <td className="px-4 py-2 text-sm">{ei.impuestos?.nombre}</td>
+                    <td className="px-4 py-2 text-xs text-gray-600">{ei.impuestos?.porcentaje}%</td>
+                    <td className="px-4 py-2"><span className={`text-xs px-2 py-0.5 rounded-full ${ei.impuestos?.flujo === 'compra' ? 'bg-amber-50 text-amber-700' : 'bg-blue-50 text-blue-700'}`}>{ei.impuestos?.flujo === 'compra' ? 'Compra' : 'Venta'}</span></td>
+                    <td className="px-4 py-2"><button onClick={() => eliminarEsquemaImpuesto(ei.id)} className="text-xs text-red-400 border border-red-200 px-2 py-0.5 rounded-full hover:bg-red-50">Eliminar</button></td>
+                  </tr>)}</tbody>
+                </table>
               )}
             </div>
           </div>
