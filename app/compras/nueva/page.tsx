@@ -113,7 +113,7 @@ export default function NuevaOCPage() {
       .from('esquema_impuestos')
       .select('impuesto_id, impuestos(id, codigo, nombre, porcentaje, tipo_calculo, flujo)')
       .eq('esquema_id', esquemaId)
-    const resultado = (data || []) as EsquemaImpuesto[]
+    const resultado = ((data || []) as any[]) as EsquemaImpuesto[]
     setEsquemaImpuestos(prev => ({ ...prev, [esquemaId]: resultado }))
     return resultado
   }
