@@ -25,6 +25,7 @@ export default function Navbar() {
   const navItems = [
     { label: 'Clientes / Proveed.', href: '/entidades' },
     { label: 'Bienes y Servicios', href: '/bienes' },
+    { label: 'Compras', href: '/compras' },
     { label: 'Contactos', href: '/contactos' },
     { label: 'Plan de Cuentas', href: '/plan-cuentas' },
     { label: 'Administración', href: '/admin' },
@@ -39,7 +40,7 @@ export default function Navbar() {
         <div className="flex gap-1">
           {navItems.map(item => (
             <a key={item.href} href={item.href}
-              className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${pathname === item.href ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-500 hover:bg-gray-50'}`}>
+              className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${pathname.startsWith(item.href) ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-500 hover:bg-gray-50'}`}>
               {item.label}
             </a>
           ))}
