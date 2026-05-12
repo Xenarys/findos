@@ -13,14 +13,21 @@ interface BienServicio {
   moneda: string
   afecto_iva_compra: boolean
   afecto_iva_venta: boolean
+  esquema_tributario_compra_id: string | null
+  esquema_tributario_venta_id: string | null
   activo: boolean
+}
+
+interface Esquema {
+  id: string
+  nombre: string
 }
 
 const formInicial = {
   descripcion: '', tipo: 'servicio',
   clasificacion: '', unidad: '', moneda: 'CLP',
-  afecto_iva_compra: true,
-  afecto_iva_venta: true
+  afecto_iva_compra: true, afecto_iva_venta: true,
+  esquema_tributario_compra_id: '', esquema_tributario_venta_id: ''
 }
 
 export default function BienesPage() {
@@ -28,6 +35,7 @@ export default function BienesPage() {
   const [clasificaciones, setClasificaciones] = useState<string[]>([])
   const [unidades, setUnidades] = useState<string[]>([])
   const [monedas, setMonedas] = useState<string[]>([])
+  const [esquemas, setEsquemas] = useState<Esquema[]>([])
   const [loading, setLoading] = useState(true)
   const [busqueda, setBusqueda] = useState('')
   const [filtro, setFiltro] = useState('todos')
@@ -35,43 +43,34 @@ export default function BienesPage() {
   const [editando, setEditando] = useState<BienServicio | null>(null)
   const [form, setForm] = useState(formInicial)
 
-  useEffect(() => {
-    cargarItems()
-    cargarListas()
-  }, [])
+  useEffect(() => { cargarItems(); cargarListas() }, [])
 
   async function cargarListas() {
-    const { data: clases } = await supabase.from('clasificaciones').select('nombre').eq('activo', true).order('nombre')
-    const { data: units } = await supabase.from('unidades').select('nombre').eq('activo', true).order('nombre')
-    const { data: mones } = await supabase.from('monedas').select('codigo').eq('activo', true).order('nombre')
-    if (clases) setClasificaciones(clases.map(c => c.nombre))
-    if (units) setUnidades(units.map(u => u.nombre))
-    if (mones) setMonedas(mones.map(m => m.codigo))
+    const [clases, units, mones, esqs] = await Promise.all([
+      supabase.from('clasificaciones').select('nombre').eq('activo', true).order('nombre'),
+      supabase.from('unidades').select('nombre').eq('activo', true).order('nombre'),
+      supabase.from('monedas').select('codigo').eq('activo', true).order('nombre'),
+      supabase.from('esquemas_tributarios').select('id, nombre').eq('activo', true).order('nombre'),
+    ])
+    if (clases.data) setClasificaciones(clases.data.map(c => c.nombre))
+    if (units.data) setUnidades(units.data.map(u => u.nombre))
+    if (mones.data) setMonedas(mones.data.map(m => m.codigo))
+    if (esqs.data) setEsquemas(esqs.data)
   }
 
   async function cargarItems() {
     setLoading(true)
-    const { data, error } = await supabase
-      .from('bienes_servicios')
-      .select('*')
-      .order('codigo')
+    const { data, error } = await supabase.from('bienes_servicios').select('*').order('codigo')
     if (!error && data) setItems(data)
     setLoading(false)
   }
 
   async function generarCodigo(tipo: string) {
     const prefijo = tipo === 'servicio' ? 'SRV' : 'MAT'
-    const { data } = await supabase
-      .from('bienes_servicios')
-      .select('codigo')
-      .like('codigo', `${prefijo}-%`)
-      .order('codigo', { ascending: false })
-      .limit(1)
-    
+    const { data } = await supabase.from('bienes_servicios').select('codigo').like('codigo', `${prefijo}-%`).order('codigo', { ascending: false }).limit(1)
     let numero = 1
     if (data && data.length > 0) {
-      const ultimoCodigo = data[0].codigo
-      const ultimoNumero = parseInt(ultimoCodigo.split('-')[1])
+      const ultimoNumero = parseInt(data[0].codigo.split('-')[1])
       numero = ultimoNumero + 1
     }
     return `${prefijo}-${String(numero).padStart(5, '0')}`
@@ -86,12 +85,14 @@ export default function BienesPage() {
       unidad: item.unidad || '',
       moneda: item.moneda || 'CLP',
       afecto_iva_compra: item.afecto_iva_compra ?? true,
-      afecto_iva_venta: item.afecto_iva_venta ?? true
+      afecto_iva_venta: item.afecto_iva_venta ?? true,
+      esquema_tributario_compra_id: item.esquema_tributario_compra_id || '',
+      esquema_tributario_venta_id: item.esquema_tributario_venta_id || '',
     })
     setMostrarForm(true)
   }
 
- async function guardar() {
+  async function guardar() {
     if (!form.descripcion) return alert('La descripción es obligatoria')
     if (!form.clasificacion) return alert('La clasificación es obligatoria')
     if (!form.unidad) return alert('La unidad es obligatoria')
@@ -99,34 +100,27 @@ export default function BienesPage() {
     const { data: { user } } = await supabase.auth.getUser()
     const ahora = new Date().toISOString()
 
+    const payload = {
+      ...form,
+      esquema_tributario_compra_id: form.esquema_tributario_compra_id || null,
+      esquema_tributario_venta_id: form.esquema_tributario_venta_id || null,
+      updated_by: user?.email, updated_at: ahora
+    }
+
     if (editando) {
-      const { error } = await supabase.from('bienes_servicios').update({
-        ...form,
-        updated_by: user?.email,
-        updated_at: ahora
-      }).eq('id', editando.id)
+      const { error } = await supabase.from('bienes_servicios').update(payload).eq('id', editando.id)
       if (error) return alert('Error: ' + error.message)
     } else {
       const codigo = await generarCodigo(form.tipo)
-      const { error } = await supabase.from('bienes_servicios').insert([{
-        ...form,
-        codigo,
-        created_by: user?.email,
-        updated_by: user?.email,
-        updated_at: ahora
-      }])
+      const { error } = await supabase.from('bienes_servicios').insert([{ ...payload, codigo, created_by: user?.email }])
       if (error) return alert('Error: ' + error.message)
     }
 
-    setMostrarForm(false)
-    setEditando(null)
-    setForm(formInicial)
-    cargarItems()
+    setMostrarForm(false); setEditando(null); setForm(formInicial); cargarItems()
   }
 
   const itemsFiltrados = items.filter(i => {
-    const matchBusqueda = i.descripcion.toLowerCase().includes(busqueda.toLowerCase()) ||
-      i.codigo.toLowerCase().includes(busqueda.toLowerCase())
+    const matchBusqueda = i.descripcion.toLowerCase().includes(busqueda.toLowerCase()) || i.codigo.toLowerCase().includes(busqueda.toLowerCase())
     const matchFiltro = filtro === 'todos' || i.tipo === filtro
     return matchBusqueda && matchFiltro
   })
@@ -165,36 +159,21 @@ export default function BienesPage() {
           ) : (
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-100">
-                <tr>
-                  {['Código', 'Descripción', 'Tipo', 'Clasificación', 'Unidad', 'Moneda', 'Estado', ''].map(h => (
-                    <th key={h} className="text-left px-4 py-3 text-xs font-medium text-gray-500">{h}</th>
-                  ))}
-                </tr>
+                <tr>{['Código', 'Descripción', 'Tipo', 'Clasificación', 'Unidad', 'Moneda', 'Estado', ''].map(h => (
+                  <th key={h} className="text-left px-4 py-3 text-xs font-medium text-gray-500">{h}</th>
+                ))}</tr>
               </thead>
               <tbody>
                 {itemsFiltrados.map(item => (
                   <tr key={item.id} className="border-b border-gray-50 hover:bg-gray-50">
                     <td className="px-4 py-3 font-mono text-xs text-gray-500">{item.codigo}</td>
                     <td className="px-4 py-3 font-medium text-gray-800">{item.descripcion}</td>
-                    <td className="px-4 py-3">
-                      <span className={`text-xs px-2 py-0.5 rounded-full ${item.tipo === 'servicio' ? 'bg-emerald-50 text-emerald-700' : 'bg-purple-50 text-purple-700'}`}>
-                        {item.tipo === 'servicio' ? 'Servicio' : 'Material'}
-                      </span>
-                    </td>
+                    <td className="px-4 py-3"><span className={`text-xs px-2 py-0.5 rounded-full ${item.tipo === 'servicio' ? 'bg-emerald-50 text-emerald-700' : 'bg-purple-50 text-purple-700'}`}>{item.tipo === 'servicio' ? 'Servicio' : 'Material'}</span></td>
                     <td className="px-4 py-3 text-gray-600">{item.clasificacion || '—'}</td>
                     <td className="px-4 py-3 text-gray-600">{item.unidad || '—'}</td>
                     <td className="px-4 py-3 text-gray-600">{item.moneda}</td>
-                    <td className="px-4 py-3">
-                      <span className={`text-xs px-2 py-0.5 rounded-full ${item.activo ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
-                        {item.activo ? 'Activo' : 'Inactivo'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <button onClick={() => abrirEditar(item)}
-                        className="text-xs text-gray-600 border border-gray-200 px-3 py-1 rounded-full hover:bg-gray-50 cursor-pointer transition-colors">
-                        Editar
-                      </button>
-                    </td>
+                    <td className="px-4 py-3"><span className={`text-xs px-2 py-0.5 rounded-full ${item.activo ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>{item.activo ? 'Activo' : 'Inactivo'}</span></td>
+                    <td className="px-4 py-3"><button onClick={() => abrirEditar(item)} className="text-xs text-gray-600 border border-gray-200 px-3 py-1 rounded-full hover:bg-gray-50 cursor-pointer transition-colors">Editar</button></td>
                   </tr>
                 ))}
               </tbody>
@@ -205,93 +184,100 @@ export default function BienesPage() {
         {/* FORMULARIO */}
         {mostrarForm && (
           <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-xl w-full max-w-lg p-6">
+            <div className="bg-white rounded-xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
               <div className="flex justify-between items-center mb-4">
                 <h2 className="text-lg font-semibold">{editando ? 'Editar' : 'Nuevo'} bien o servicio</h2>
-                <button onClick={() => { setMostrarForm(false); setEditando(null); setForm(formInicial) }}
-                  className="text-gray-400 hover:text-gray-600">✕</button>
+                <button onClick={() => { setMostrarForm(false); setEditando(null); setForm(formInicial) }} className="text-gray-400 hover:text-gray-600">✕</button>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 {editando && (
                   <div className="col-span-2">
                     <label className="text-xs text-gray-500 mb-1 block">Código</label>
-                    <input value={editando.codigo} readOnly
-                      className="w-full border border-gray-100 rounded-lg px-3 py-2 text-sm bg-gray-50 font-mono text-gray-400" />
+                    <input value={editando.codigo} readOnly className="w-full border border-gray-100 rounded-lg px-3 py-2 text-sm bg-gray-50 font-mono text-gray-400" />
                   </div>
                 )}
                 <div className="col-span-2">
                   <label className="text-xs text-gray-500 mb-1 block">Tipo *</label>
                   <div className="flex gap-4">
-                    <label className="flex items-center gap-2 text-sm cursor-pointer">
-                      <input type="radio" value="servicio" checked={form.tipo === 'servicio'}
-                        onChange={e => setForm({ ...form, tipo: e.target.value })} />
-                      Servicio
-                    </label>
-                    <label className="flex items-center gap-2 text-sm cursor-pointer">
-                      <input type="radio" value="material" checked={form.tipo === 'material'}
-                        onChange={e => setForm({ ...form, tipo: e.target.value })} />
-                      Material
-                    </label>
+                    <label className="flex items-center gap-2 text-sm cursor-pointer"><input type="radio" value="servicio" checked={form.tipo === 'servicio'} onChange={e => setForm({ ...form, tipo: e.target.value })} />Servicio</label>
+                    <label className="flex items-center gap-2 text-sm cursor-pointer"><input type="radio" value="material" checked={form.tipo === 'material'} onChange={e => setForm({ ...form, tipo: e.target.value })} />Material</label>
                   </div>
                 </div>
                 <div className="col-span-2">
                   <label className="text-xs text-gray-500 mb-1 block">Descripción *</label>
-                  <input value={form.descripcion} onChange={e => setForm({ ...form, descripcion: e.target.value })}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+                  <input value={form.descripcion} onChange={e => setForm({ ...form, descripcion: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
                 </div>
                 <div>
                   <label className="text-xs text-gray-500 mb-1 block">Clasificación *</label>
-                  <select value={form.clasificacion} onChange={e => setForm({ ...form, clasificacion: e.target.value })}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
+                  <select value={form.clasificacion} onChange={e => setForm({ ...form, clasificacion: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
                     <option value="">— seleccione —</option>
                     {clasificaciones.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="text-xs text-gray-500 mb-1 block">Unidad *</label>
-                  <select value={form.unidad} onChange={e => setForm({ ...form, unidad: e.target.value })}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
+                  <select value={form.unidad} onChange={e => setForm({ ...form, unidad: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
                     <option value="">— seleccione —</option>
                     {unidades.map(u => <option key={u} value={u}>{u}</option>)}
                   </select>
                 </div>
-                <div>
-                <label className="text-xs text-gray-500 mb-1 block">Moneda</label>
-                 <select value={form.moneda} onChange={e => setForm({ ...form, moneda: e.target.value })}
-                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
-                     <option value="">— seleccione —</option>
-                      {monedas.map(m => (
-                      <option key={m} value={m}>{m}</option>
-                     ))}
-                 </select>
-                </div>
                 <div className="col-span-2">
-                 <label className="text-xs text-gray-500 mb-2 block">IVA</label>
-                <div className="flex gap-6">
-                 <label className="flex items-center gap-2 text-sm cursor-pointer">
-               <input type="checkbox"
-                    checked={form.afecto_iva_compra}
-                   onChange={e => setForm({ ...form, afecto_iva_compra: e.target.checked })} />
-                 Afecto IVA compra
-             </label>
-             <label className="flex items-center gap-2 text-sm cursor-pointer">
-                  <input type="checkbox"
-                   checked={form.afecto_iva_venta}
-                      onChange={e => setForm({ ...form, afecto_iva_venta: e.target.checked })} />
-                 Afecto IVA venta
-                  </label>
-                 </div>
+                  <label className="text-xs text-gray-500 mb-1 block">Moneda</label>
+                  <select value={form.moneda} onChange={e => setForm({ ...form, moneda: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
+                    <option value="">— seleccione —</option>
+                    {monedas.map(m => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                </div>
+
+                {/* DATOS DE COMPRAS */}
+                <div className="col-span-2 mt-2">
+                  <div className="border-t border-gray-100 pt-3 mb-3">
+                    <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide">Datos de compras</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="col-span-2">
+                      <label className="flex items-center gap-2 text-sm cursor-pointer">
+                        <input type="checkbox" checked={form.afecto_iva_compra} onChange={e => setForm({ ...form, afecto_iva_compra: e.target.checked })} />
+                        Afecto IVA en compras
+                      </label>
+                    </div>
+                    <div className="col-span-2">
+                      <label className="text-xs text-gray-500 mb-1 block">Esquema tributario compras</label>
+                      <select value={form.esquema_tributario_compra_id} onChange={e => setForm({ ...form, esquema_tributario_compra_id: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
+                        <option value="">— seleccione —</option>
+                        {esquemas.map(e => <option key={e.id} value={e.id}>{e.nombre}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                {/* DATOS DE VENTAS */}
+                <div className="col-span-2 mt-2">
+                  <div className="border-t border-gray-100 pt-3 mb-3">
+                    <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide">Datos de ventas</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="col-span-2">
+                      <label className="flex items-center gap-2 text-sm cursor-pointer">
+                        <input type="checkbox" checked={form.afecto_iva_venta} onChange={e => setForm({ ...form, afecto_iva_venta: e.target.checked })} />
+                        Afecto IVA en ventas
+                      </label>
+                    </div>
+                    <div className="col-span-2">
+                      <label className="text-xs text-gray-500 mb-1 block">Esquema tributario ventas</label>
+                      <select value={form.esquema_tributario_venta_id} onChange={e => setForm({ ...form, esquema_tributario_venta_id: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
+                        <option value="">— seleccione —</option>
+                        {esquemas.map(e => <option key={e.id} value={e.id}>{e.nombre}</option>)}
+                      </select>
+                    </div>
+                  </div>
                 </div>
               </div>
 
               <div className="flex justify-end gap-3 mt-4">
-                <button onClick={() => { setMostrarForm(false); setEditando(null); setForm(formInicial) }}
-                  className="px-4 py-2 text-sm border border-gray-200 rounded-lg">Cancelar</button>
-                <button onClick={guardar}
-                  className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">
-                  {editando ? 'Actualizar' : 'Guardar'}
-                </button>
+                <button onClick={() => { setMostrarForm(false); setEditando(null); setForm(formInicial) }} className="px-4 py-2 text-sm border border-gray-200 rounded-lg">Cancelar</button>
+                <button onClick={guardar} className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">{editando ? 'Actualizar' : 'Guardar'}</button>
               </div>
             </div>
           </div>
