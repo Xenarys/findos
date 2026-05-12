@@ -7,13 +7,13 @@ import { useEmpresa } from '@/app/context/empresa'
 
 interface Entidad { id: string; razon_social: string; rut: string }
 interface BienServicio {
-  id: string; codigo: string; descripcion: string
+  id: string; codigo: string; descripcion: string; clasificacion: string
   unidad: string; moneda: string; afecto_iva_compra: boolean
   esquema_tributario_compra_id: string | null
 }
 interface CondicionPago { id: string; nombre: string }
-interface Impuesto { id: string; codigo: string; nombre: string; porcentaje: number; tipo_calculo: string; flujo: string }
-interface CondicionPrecio { id: string; nombre: string; abreviatura: string; tipo: string; forma_calculo: string; nivel: string }
+interface Impuesto { id: string; codigo: string; nombre: string; porcentaje: number; tipo_calculo: string; flujo: string; cuenta_id: string | null }
+interface CondicionPrecio { id: string; nombre: string; abreviatura: string; tipo: string; forma_calculo: string; nivel: string; requiere_cuenta: boolean; cuenta_id: string | null }
 interface EsquemaImpuesto { impuesto_id: string; impuestos: Impuesto }
 
 interface ItemImpuesto {
@@ -23,6 +23,7 @@ interface ItemImpuesto {
   porcentaje: number
   monto_calculado: number
   es_automatico: boolean
+  cuenta_id: string | null
 }
 
 interface ItemCondicion {
@@ -33,6 +34,8 @@ interface ItemCondicion {
   forma_calculo: string
   valor: number
   monto_calculado: number
+  requiere_cuenta: boolean
+  cuenta_id: string | null
 }
 
 interface ItemForm {
@@ -45,6 +48,7 @@ interface ItemForm {
   bien?: BienServicio
   impuestos: ItemImpuesto[]
   condiciones: ItemCondicion[]
+  cuenta_id: string | null
 }
 
 interface CondicionCabecera {
@@ -75,6 +79,7 @@ export default function NuevaOCPage() {
   const [impuestosDisp, setImpuestosDisp] = useState<Impuesto[]>([])
   const [condPrecioDisp, setCondPrecioDisp] = useState<CondicionPrecio[]>([])
   const [esquemaImpuestos, setEsquemaImpuestos] = useState<Record<string, EsquemaImpuesto[]>>({})
+  const [operacionC1G, setOperacionC1G] = useState<string | null>(null)
   const [guardando, setGuardando] = useState(false)
 
   const [cabecera, setCabecera] = useState({
@@ -85,8 +90,6 @@ export default function NuevaOCPage() {
   const [condsCabecera, setCondsCabecera] = useState<CondicionCabecera[]>([])
   const [impsCabecera, setImpsCabecera] = useState<ImpuestoCabecera[]>([])
   const [bienSeleccionado, setBienSeleccionado] = useState('')
-
-  // Selects para agregar en cabecera
   const [condSelCab, setCondSelCab] = useState('')
   const [impSelCab, setImpSelCab] = useState('')
 
@@ -95,10 +98,10 @@ export default function NuevaOCPage() {
   async function cargarListas() {
     const [provs, bs, cps, imps, conds] = await Promise.all([
       supabase.from('entidades').select('id, razon_social, rut').eq('tipo_proveedor', true).eq('activo', true).order('razon_social'),
-      supabase.from('bienes_servicios').select('id, codigo, descripcion, unidad, moneda, afecto_iva_compra, esquema_tributario_compra_id').eq('activo', true).order('descripcion'),
+      supabase.from('bienes_servicios').select('id, codigo, descripcion, clasificacion, unidad, moneda, afecto_iva_compra, esquema_tributario_compra_id').eq('activo', true).order('descripcion'),
       supabase.from('condiciones_pago').select('id, nombre').eq('activo', true).order('dias'),
-      supabase.from('impuestos').select('id, codigo, nombre, porcentaje, tipo_calculo, flujo').eq('activo', true).eq('flujo', 'compra').order('codigo'),
-      supabase.from('condiciones_precio').select('id, nombre, abreviatura, tipo, forma_calculo, nivel').eq('activo', true).order('nombre'),
+      supabase.from('impuestos').select('id, codigo, nombre, porcentaje, tipo_calculo, flujo, cuenta_id').eq('activo', true).eq('flujo', 'compra').order('codigo'),
+      supabase.from('condiciones_precio').select('id, nombre, abreviatura, tipo, forma_calculo, nivel, requiere_cuenta, cuenta_id').eq('activo', true).order('nombre'),
     ])
     if (provs.data) setProveedores(provs.data)
     if (bs.data) setBienes(bs.data)
@@ -111,17 +114,48 @@ export default function NuevaOCPage() {
     if (esquemaImpuestos[esquemaId]) return esquemaImpuestos[esquemaId]
     const { data } = await supabase
       .from('esquema_impuestos')
-      .select('impuesto_id, impuestos(id, codigo, nombre, porcentaje, tipo_calculo, flujo)')
+      .select('impuesto_id, impuestos(id, codigo, nombre, porcentaje, tipo_calculo, flujo, cuenta_id)')
       .eq('esquema_id', esquemaId)
     const resultado = ((data || []) as any[]) as EsquemaImpuesto[]
     setEsquemaImpuestos(prev => ({ ...prev, [esquemaId]: resultado }))
     return resultado
   }
 
+  async function resolverCuentaItem(bien: BienServicio): Promise<string | null> {
+    let opId = operacionC1G
+    if (!opId) {
+      const { data: op } = await supabase
+        .from('operaciones_contables')
+        .select('id')
+        .eq('codigo', 'C1G')
+        .single()
+      if (op) { setOperacionC1G(op.id); opId = op.id }
+    }
+    if (!opId) return null
+
+    const { data: clas } = await supabase
+      .from('clasificaciones')
+      .select('id')
+      .eq('nombre', bien.clasificacion)
+      .single()
+    if (!clas) return null
+
+    const { data: cc } = await supabase
+      .from('clasificacion_cuentas')
+      .select('cuenta_id')
+      .eq('clasificacion_id', clas.id)
+      .eq('operacion_id', opId)
+      .single()
+
+    return cc?.cuenta_id || null
+  }
+
   async function agregarItem() {
     if (!bienSeleccionado) return alert('Selecciona un bien o servicio')
     const bien = bienes.find(b => b.id === bienSeleccionado)
     if (!bien) return
+
+    const cuentaItem = await resolverCuentaItem(bien)
 
     let impuestosAuto: ItemImpuesto[] = []
     if (bien.esquema_tributario_compra_id) {
@@ -134,7 +168,8 @@ export default function NuevaOCPage() {
           nombre: ei.impuestos.nombre,
           porcentaje: ei.impuestos.porcentaje,
           monto_calculado: 0,
-          es_automatico: true
+          es_automatico: true,
+          cuenta_id: ei.impuestos.cuenta_id || null
         }))
     }
 
@@ -147,7 +182,8 @@ export default function NuevaOCPage() {
       subtotal_neto: 0,
       bien,
       impuestos: impuestosAuto,
-      condiciones: []
+      condiciones: [],
+      cuenta_id: cuentaItem
     }])
     setBienSeleccionado('')
   }
@@ -156,7 +192,6 @@ export default function NuevaOCPage() {
     const subtotal_bruto = item.cantidad * item.precio_unitario
     let subtotal_neto = subtotal_bruto
 
-    // Aplicar condiciones de precio del ítem
     const condiciones = item.condiciones.map(c => {
       let monto = 0
       if (c.forma_calculo === 'porcentual') monto = subtotal_bruto * c.valor / 100
@@ -167,7 +202,6 @@ export default function NuevaOCPage() {
       return { ...c, monto_calculado: monto }
     })
 
-    // Calcular impuestos sobre subtotal neto
     const impuestos = item.impuestos.map(imp => ({
       ...imp,
       monto_calculado: Math.round(subtotal_neto * imp.porcentaje / 100)
@@ -191,7 +225,8 @@ export default function NuevaOCPage() {
       ...nuevos[idx],
       impuestos: [...nuevos[idx].impuestos, {
         impuesto_id: imp.id, codigo: imp.codigo, nombre: imp.nombre,
-        porcentaje: imp.porcentaje, monto_calculado: 0, es_automatico: false
+        porcentaje: imp.porcentaje, monto_calculado: 0, es_automatico: false,
+        cuenta_id: imp.cuenta_id || null
       }]
     })
     setItems(nuevos)
@@ -207,12 +242,15 @@ export default function NuevaOCPage() {
     const cond = condPrecioDisp.find(c => c.id === condId)
     if (!cond) return
     if (items[idx].condiciones.some(c => c.condicion_precio_id === condId)) return alert('Esa condición ya está en el ítem')
+    const cuentaCond = cond.requiere_cuenta ? cond.cuenta_id : items[idx].cuenta_id
     const nuevos = [...items]
     nuevos[idx] = calcularItem({
       ...nuevos[idx],
       condiciones: [...nuevos[idx].condiciones, {
         condicion_precio_id: cond.id, nombre: cond.nombre, abreviatura: cond.abreviatura,
-        tipo: cond.tipo, forma_calculo: cond.forma_calculo, valor: 0, monto_calculado: 0
+        tipo: cond.tipo, forma_calculo: cond.forma_calculo, valor: 0, monto_calculado: 0,
+        requiere_cuenta: cond.requiere_cuenta ?? false,
+        cuenta_id: cuentaCond || null
       }]
     })
     setItems(nuevos)
@@ -235,7 +273,6 @@ export default function NuevaOCPage() {
 
   function eliminarItem(idx: number) { setItems(items.filter((_, i) => i !== idx)) }
 
-  // Cabecera condiciones
   function agregarCondCabecera() {
     if (!condSelCab) return
     const cond = condPrecioDisp.find(c => c.id === condSelCab)
@@ -262,7 +299,6 @@ export default function NuevaOCPage() {
     setCondsCabecera(condsCabecera.filter(c => c.condicion_precio_id !== condId))
   }
 
-  // Cabecera impuestos
   function agregarImpCabecera() {
     if (!impSelCab) return
     const imp = impuestosDisp.find(i => i.id === impSelCab)
@@ -280,7 +316,6 @@ export default function NuevaOCPage() {
     setImpsCabecera(impsCabecera.filter(i => i.impuesto_id !== impId))
   }
 
-  // Totales
   const totalNeto = items.reduce((sum, i) => sum + i.subtotal_neto, 0)
   const totalCondsCab = condsCabecera.reduce((sum, c) => sum + c.monto_calculado, 0)
   const totalImpItems = items.reduce((sum, i) => sum + i.impuestos.reduce((s, imp) => s + imp.monto_calculado, 0), 0)
@@ -321,55 +356,59 @@ export default function NuevaOCPage() {
     if (error || !oc) { alert('Error: ' + error?.message); setGuardando(false); return }
     const ocId = oc[0].id
 
-    // Insertar ítems
     for (const item of items) {
       const { data: itemData, error: itemError } = await supabase.from('ordenes_compra_items').insert([{
         orden_compra_id: ocId, bien_servicio_id: item.bien_servicio_id,
         descripcion: item.descripcion, cantidad: item.cantidad,
         precio_unitario: item.precio_unitario, subtotal: item.subtotal_neto,
         cantidad_confirmada: 0, documento_abierto: true,
+        cuenta_id: item.cuenta_id,
         created_by: user?.email, updated_by: user?.email, updated_at: ahora
       }]).select()
 
       if (itemError || !itemData) continue
       const itemId = itemData[0].id
 
-      // Impuestos del ítem
       if (item.impuestos.length > 0) {
         await supabase.from('oc_impuestos').insert(item.impuestos.map(imp => ({
           orden_compra_id: ocId, item_id: itemId,
           impuesto_id: imp.impuesto_id, nivel: 'item',
           porcentaje: imp.porcentaje, monto_calculado: imp.monto_calculado,
-          es_automatico: imp.es_automatico, created_by: user?.email
+          es_automatico: imp.es_automatico,
+          cuenta_id: imp.cuenta_id,
+          created_by: user?.email
         })))
       }
 
-      // Condiciones del ítem
       if (item.condiciones.length > 0) {
         await supabase.from('oc_condiciones').insert(item.condiciones.map(c => ({
           orden_compra_id: ocId, item_id: itemId,
           condicion_precio_id: c.condicion_precio_id, nivel: 'item',
-          valor: c.valor, monto_calculado: c.monto_calculado, created_by: user?.email
+          valor: c.valor, monto_calculado: c.monto_calculado,
+          cuenta_id: c.cuenta_id,
+          created_by: user?.email
         })))
       }
     }
 
-    // Condiciones cabecera
     if (condsCabecera.length > 0) {
       await supabase.from('oc_condiciones').insert(condsCabecera.map(c => ({
         orden_compra_id: ocId, item_id: null,
         condicion_precio_id: c.condicion_precio_id, nivel: 'cabecera',
-        valor: c.valor, monto_calculado: c.monto_calculado, created_by: user?.email
+        valor: c.valor, monto_calculado: c.monto_calculado,
+        cuenta_id: null,
+        created_by: user?.email
       })))
     }
 
-    // Impuestos cabecera
     if (impsCabecera.length > 0) {
       await supabase.from('oc_impuestos').insert(impsCabecera.map(i => ({
         orden_compra_id: ocId, item_id: null,
         impuesto_id: i.impuesto_id, nivel: 'cabecera',
         porcentaje: i.porcentaje, monto_calculado: i.monto_calculado,
-        es_automatico: false, created_by: user?.email
+        es_automatico: false,
+        cuenta_id: impuestosDisp.find(imp => imp.id === i.impuesto_id)?.cuenta_id || null,
+        created_by: user?.email
       })))
     }
 
@@ -438,7 +477,6 @@ export default function NuevaOCPage() {
             <div className="space-y-4">
               {items.map((item, idx) => (
                 <div key={idx} className="border border-gray-100 rounded-lg p-4">
-                  {/* Fila principal */}
                   <div className="grid grid-cols-12 gap-2 items-center mb-3">
                     <div className="col-span-4">
                       <label className="text-xs text-gray-400 block mb-1">Descripción</label>
