@@ -12,6 +12,7 @@ interface ItemOC {
   cantidad_confirmada: number
   precio_unitario: number
   subtotal: number
+  numero_item: number
   cuenta_id: string | null
   bienes_servicios?: { codigo: string; unidad: string }
 }
@@ -44,7 +45,7 @@ export default function DetalleOCPage() {
 
     const [ocData, itemsData, condsData, impsData, confsData] = await Promise.all([
       supabase.from('ordenes_compra').select('*, entidades(razon_social, rut)').eq('id', id).single(),
-      supabase.from('ordenes_compra_items').select('*, bienes_servicios(codigo, unidad)').eq('orden_compra_id', id).order('created_at'),
+      supabase.from('ordenes_compra_items').select('*, bienes_servicios(codigo, unidad)').eq('orden_compra_id', id).order('numero_item'),
       supabase.from('oc_condiciones').select('*, condiciones_precio(nombre, abreviatura, tipo)').eq('orden_compra_id', id),
       supabase.from('oc_impuestos').select('*, impuestos(codigo, nombre)').eq('orden_compra_id', id),
       supabase.from('oc_confirmaciones').select('*').eq('orden_compra_id', id).order('fecha_confirmacion', { ascending: false })
@@ -55,7 +56,6 @@ export default function DetalleOCPage() {
     if (condsData.data) setCondiciones(condsData.data)
     if (impsData.data) setImpuestos(impsData.data)
 
-    // Cargar confirmaciones con totales
     if (confsData.data) {
       const confsConTotales = await Promise.all(confsData.data.map(async (conf: any) => {
         const { data: items } = await supabase
@@ -81,18 +81,8 @@ export default function DetalleOCPage() {
   async function emitirOC() {
     if (!window.confirm('¿Emitir esta OC? No podrá ser editada nuevamente.')) return
     setEmitiendo(true)
-
-    const { error } = await supabase
-      .from('ordenes_compra')
-      .update({ estado: 'emitida' })
-      .eq('id', id)
-
-    if (error) {
-      alert('Error: ' + error.message)
-      setEmitiendo(false)
-      return
-    }
-
+    const { error } = await supabase.from('ordenes_compra').update({ estado: 'emitida' }).eq('id', id)
+    if (error) { alert('Error: ' + error.message); setEmitiendo(false); return }
     alert('OC emitida exitosamente')
     cargarTodo()
     setEmitiendo(false)
@@ -101,18 +91,8 @@ export default function DetalleOCPage() {
   async function anularOC() {
     if (!window.confirm('¿Anular esta OC? Esta acción no se puede deshacer.')) return
     setAnulando(true)
-
-    const { error } = await supabase
-      .from('ordenes_compra')
-      .update({ estado: 'anulada', documento_abierto: false })
-      .eq('id', id)
-
-    if (error) {
-      alert('Error: ' + error.message)
-      setAnulando(false)
-      return
-    }
-
+    const { error } = await supabase.from('ordenes_compra').update({ estado: 'anulada', documento_abierto: false }).eq('id', id)
+    if (error) { alert('Error: ' + error.message); setAnulando(false); return }
     alert('OC anulada')
     cargarTodo()
     setAnulando(false)
@@ -183,9 +163,9 @@ export default function DetalleOCPage() {
                 </tr>
               </thead>
               <tbody>
-                {items.map((item, idx) => (
+                {items.map((item) => (
                   <tr key={item.id} className="border-b border-gray-50 hover:bg-gray-50">
-                    <td className="py-3 font-semibold text-gray-700">{idx + 1}</td>
+                    <td className="py-3 font-semibold text-gray-700">{item.numero_item}</td>
                     <td className="py-3 font-mono text-xs text-gray-600">{item.bienes_servicios?.codigo || '—'}</td>
                     <td className="py-3 text-gray-700">{item.descripcion}</td>
                     <td className="py-3 text-center text-gray-600">{item.bienes_servicios?.unidad || '—'}</td>

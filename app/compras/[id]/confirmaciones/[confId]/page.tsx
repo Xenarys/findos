@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase'
 interface ItemConfirmacion {
   id: string
   item_id: string
+  numero_item: number
   referencia_itsm: string | null
   cantidad_confirmada: number
   subtotal_bruto_conf: number
@@ -15,6 +16,7 @@ interface ItemConfirmacion {
   subtotal_neto_conf: number
   cuenta_item: string | null
   ordenes_compra_items?: {
+    numero_item: number
     descripcion: string
     precio_unitario: number
     bienes_servicios?: {
@@ -47,7 +49,6 @@ export default function DetalleConfirmacionPage() {
 
   const [confirmacion, setConfirmacion] = useState<Confirmacion | null>(null)
   const [items, setItems] = useState<ItemConfirmacion[]>([])
-  const [ocItems, setOcItems] = useState<{id: string}[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => { cargarTodo() }, [confId])
@@ -55,7 +56,7 @@ export default function DetalleConfirmacionPage() {
   async function cargarTodo() {
     setLoading(true)
 
-    const [confData, itemsData, ocItemsData] = await Promise.all([
+    const [confData, itemsData] = await Promise.all([
       supabase
         .from('oc_confirmaciones')
         .select('*, ordenes_compra(numero, entidades(razon_social, rut))')
@@ -63,19 +64,13 @@ export default function DetalleConfirmacionPage() {
         .single(),
       supabase
         .from('oc_confirmaciones_items')
-        .select('id, item_id, referencia_itsm, cantidad_confirmada, subtotal_bruto_conf, monto_descuentos_item, monto_descuentos_global, subtotal_neto_conf, cuenta_item, ordenes_compra_items(descripcion, precio_unitario, bienes_servicios(codigo, unidad))')
+        .select('id, item_id, numero_item, referencia_itsm, cantidad_confirmada, subtotal_bruto_conf, monto_descuentos_item, monto_descuentos_global, subtotal_neto_conf, cuenta_item, ordenes_compra_items(numero_item, descripcion, precio_unitario, bienes_servicios(codigo, unidad))')
         .eq('confirmacion_id', confId)
-        ,supabase
-        .from('ordenes_compra_items')
-        .select('id')
-        .eq('orden_compra_id', id)
-        .order('created_at')
+        .order('numero_item')
     ])
 
     if (confData.data) setConfirmacion(confData.data as Confirmacion)
     if (itemsData.data) setItems(itemsData.data as any)
-    if (ocItemsData.data) setOcItems(ocItemsData.data)
-        
 
     setLoading(false)
   }
@@ -155,45 +150,43 @@ export default function DetalleConfirmacionPage() {
         <div className="bg-white rounded-xl border border-gray-100 p-6 mb-4">
           <h2 className="text-sm font-semibold text-gray-600 mb-4 uppercase tracking-wide">Ítems confirmados</h2>
           <div className="space-y-4">
-            {items.map((item, idx) => {
-                const numeroItemOC = ocItems.findIndex(oi => oi.id === item.item_id) + 1
-                return (
+            {items.map((item) => (
               <div key={item.id} className="border border-gray-100 rounded-lg p-4">
                 
                 {/* Encabezado ítem */}
                 <div className="grid grid-cols-12 gap-2 mb-3">
-                <div className="col-span-1">
-                <label className="text-xs text-gray-400 block mb-1">Conf #</label>
-                 <p className="text-xs font-semibold text-gray-700">{idx + 1}</p>
-                 </div>
-                 <div className="col-span-1">
-                  <label className="text-xs text-gray-400 block mb-1">OC #</label>
-                  <p className="text-xs font-semibold text-blue-600">{numeroItemOC}</p>
-                 </div>
-                 <div className="col-span-1">
-                  <label className="text-xs text-gray-400 block mb-1">Código</label>
-                 <p className="text-xs font-mono text-gray-600">{item.ordenes_compra_items?.bienes_servicios?.codigo || '—'}</p>
-                 </div>
-                 <div className="col-span-4">
-                 <label className="text-xs text-gray-400 block mb-1">Descripción</label>
-                 <p className="text-xs text-gray-700">{item.ordenes_compra_items?.descripcion}</p>
-                </div>
-                 <div className="col-span-1">
-                  <label className="text-xs text-gray-400 block mb-1">Unidad</label>
-                  <p className="text-xs text-gray-600">{item.ordenes_compra_items?.bienes_servicios?.unidad || '—'}</p>
-                </div>
-                 <div className="col-span-1">
-                 <label className="text-xs text-gray-400 block mb-1">Cantidad</label>
-                 <p className="text-xs font-mono text-gray-700">{item.cantidad_confirmada}</p>
-                 </div>
-                 <div className="col-span-1">
-               <label className="text-xs text-gray-400 block mb-1">Precio u.</label>
-                 <p className="text-xs font-mono text-gray-700">{fmt(item.ordenes_compra_items?.precio_unitario || 0)}</p>
-                </div>
+                  <div className="col-span-1">
+                    <label className="text-xs text-gray-400 block mb-1">Conf #</label>
+                    <p className="text-xs font-semibold text-gray-700">{item.numero_item}</p>
+                  </div>
+                  <div className="col-span-1">
+                    <label className="text-xs text-gray-400 block mb-1">OC #</label>
+                    <p className="text-xs font-semibold text-blue-600">{item.ordenes_compra_items?.numero_item}</p>
+                  </div>
+                  <div className="col-span-1">
+                    <label className="text-xs text-gray-400 block mb-1">Código</label>
+                    <p className="text-xs font-mono text-gray-600">{item.ordenes_compra_items?.bienes_servicios?.codigo || '—'}</p>
+                  </div>
+                  <div className="col-span-4">
+                    <label className="text-xs text-gray-400 block mb-1">Descripción</label>
+                    <p className="text-xs text-gray-700">{item.ordenes_compra_items?.descripcion}</p>
+                  </div>
+                  <div className="col-span-1">
+                    <label className="text-xs text-gray-400 block mb-1">Unidad</label>
+                    <p className="text-xs text-gray-600">{item.ordenes_compra_items?.bienes_servicios?.unidad || '—'}</p>
+                  </div>
+                  <div className="col-span-1">
+                    <label className="text-xs text-gray-400 block mb-1">Cantidad</label>
+                    <p className="text-xs font-mono text-gray-700">{item.cantidad_confirmada}</p>
+                  </div>
+                  <div className="col-span-1">
+                    <label className="text-xs text-gray-400 block mb-1">Precio u.</label>
+                    <p className="text-xs font-mono text-gray-700">{fmt(item.ordenes_compra_items?.precio_unitario || 0)}</p>
+                  </div>
                   <div className="col-span-2">
-                 <label className="text-xs text-gray-400 block mb-1">Subtotal neto</label>
-                 <p className="text-xs font-mono font-medium text-gray-800">{fmt(item.subtotal_neto_conf)}</p>
-                </div>
+                    <label className="text-xs text-gray-400 block mb-1">Subtotal neto</label>
+                    <p className="text-xs font-mono font-medium text-gray-800">{fmt(item.subtotal_neto_conf)}</p>
+                  </div>
                 </div>
 
                 {/* Referencia ITSM */}
@@ -228,8 +221,7 @@ export default function DetalleConfirmacionPage() {
                   </div>
                 </div>
               </div>
-                )
-            })}
+            ))}
           </div>
         </div>
 

@@ -316,16 +316,18 @@ export default function NuevaOCPage() {
     const oc_id = ocData[0].id
 
     for (const item of items) {
-      const { data: itemData } = await supabase.from('ordenes_compra_items').insert([{
-        orden_compra_id: oc_id,
-        bien_servicio_id: item.bien_servicio_id,
-        descripcion: item.descripcion,
-        cantidad: item.cantidad,
-        precio_unitario: item.precio_unitario,
-        subtotal: item.subtotal_bruto,
-        cantidad_confirmada: 0,
-        documento_abierto: true,
-        cuenta_id: item.cuenta_id,
+  const numeroItem = items.indexOf(item) + 1
+  const { data: itemData } = await supabase.from('ordenes_compra_items').insert([{
+      orden_compra_id: oc_id,
+      bien_servicio_id: item.bien_servicio_id,
+      descripcion: item.descripcion,
+      cantidad: item.cantidad,
+      precio_unitario: item.precio_unitario,
+      subtotal: item.subtotal_bruto,
+      numero_item: numeroItem,
+      cantidad_confirmada: 0,
+      documento_abierto: true,
+      cuenta_id: item.cuenta_id,
         created_by: user?.email,
         updated_by: user?.email,
         updated_at: ahora

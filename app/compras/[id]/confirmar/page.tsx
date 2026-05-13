@@ -33,6 +33,7 @@ interface OcCondicion {
 
 interface ItemConfirmar {
   id: string
+  numero_item: number
   descripcion: string
   codigo: string
   unidad: string
@@ -73,7 +74,8 @@ export default function ConfirmarOCPage() {
       supabase
         .from('ordenes_compra_items')
         .select('*, bienes_servicios(codigo, unidad)')
-        .eq('orden_compra_id', id),
+        .eq('orden_compra_id', id)
+        .order('numero_item'),
       supabase
         .from('oc_condiciones')
         .select('*, condiciones_precio(nombre, abreviatura, tipo, forma_calculo)')
@@ -100,6 +102,7 @@ export default function ConfirmarOCPage() {
         
         return {
           id: i.id,
+          numero_item: i.numero_item || 0,
           descripcion: i.descripcion,
           codigo: i.bienes_servicios?.codigo || '—',
           unidad: i.bienes_servicios?.unidad || '—',
@@ -232,16 +235,19 @@ export default function ConfirmarOCPage() {
     }
 
     const confirmacion_id = confData[0].id
+    let numeroItemConf = 0
 
     for (const item of items) {
       if (item.cantidad_confirmada === 0) continue
 
+      numeroItemConf++
       const montos = calcularMontoConfirmacion(item)
       const cantidadTotalAhora = (item.cantidad_original - item.cantidad_pendiente) + item.cantidad_confirmada
 
       await supabase.from('oc_confirmaciones_items').insert([{
         confirmacion_id,
         item_id: item.id,
+        numero_item: numeroItemConf,
         referencia_itsm: item.referencia_itsm || null,
         cantidad_confirmada: item.cantidad_confirmada,
         cantidad_pendiente_original: item.cantidad_original,
@@ -294,6 +300,10 @@ export default function ConfirmarOCPage() {
                   return (
                     <div key={item.id} className="border border-gray-100 rounded-lg p-4">
                       <div className="grid grid-cols-12 gap-2 mb-3">
+                        <div className="col-span-1">
+                          <label className="text-xs text-gray-400 block mb-1">OC #</label>
+                          <p className="text-xs font-semibold text-blue-600">{item.numero_item}</p>
+                        </div>
                         <div className="col-span-1">
                           <label className="text-xs text-gray-400 block mb-1">Código</label>
                           <p className="text-xs font-mono text-gray-600">{item.codigo}</p>

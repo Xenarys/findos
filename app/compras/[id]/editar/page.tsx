@@ -84,7 +84,7 @@ export default function EditarOCPage() {
       supabase.from('impuestos').select('id, codigo, nombre, porcentaje, tipo_calculo, flujo, cuenta_id').eq('activo', true).eq('flujo', 'compra').order('codigo'),
       supabase.from('condiciones_precio').select('id, nombre, abreviatura, tipo, forma_calculo, nivel, requiere_cuenta, cuenta_id').eq('activo', true).order('nombre'),
       supabase.from('ordenes_compra').select('*').eq('id', id).single(),
-      supabase.from('ordenes_compra_items').select('*, bienes_servicios(id, codigo, descripcion, clasificacion, unidad, moneda, afecto_iva_compra, esquema_tributario_compra_id)').eq('orden_compra_id', id).order('created_at'),
+      supabase.from('ordenes_compra_items').select('*, bienes_servicios(id, codigo, descripcion, clasificacion, unidad, moneda, afecto_iva_compra, esquema_tributario_compra_id)').eq('orden_compra_id', id).order('numero_item'),
       supabase.from('oc_condiciones').select('*, condiciones_precio(nombre, abreviatura, tipo, forma_calculo)').eq('orden_compra_id', id),
       supabase.from('oc_impuestos').select('*, impuestos(codigo, nombre, porcentaje)').eq('orden_compra_id', id),
     ])
@@ -375,11 +375,15 @@ export default function EditarOCPage() {
     await supabase.from('oc_condiciones').delete().eq('orden_compra_id', id as string).is('item_id', null)
     await supabase.from('oc_impuestos').delete().eq('orden_compra_id', id as string).is('item_id', null)
 
-    for (const item of items) {
+    for (let idx = 0; idx < items.length; idx++) {
+      const item = items[idx]
+      const numeroItem = idx + 1
+
       if (item.id) {
         await supabase.from('ordenes_compra_items').update({
           descripcion: item.descripcion, cantidad: item.cantidad,
           precio_unitario: item.precio_unitario, subtotal: item.subtotal_bruto,
+          numero_item: numeroItem,
           cuenta_id: item.cuenta_id, updated_by: user?.email, updated_at: ahora
         }).eq('id', item.id)
 
@@ -408,6 +412,7 @@ export default function EditarOCPage() {
           orden_compra_id: id, bien_servicio_id: item.bien_servicio_id,
           descripcion: item.descripcion, cantidad: item.cantidad,
           precio_unitario: item.precio_unitario, subtotal: item.subtotal_bruto,
+          numero_item: numeroItem,
           cantidad_confirmada: 0, documento_abierto: true,
           cuenta_id: item.cuenta_id, created_by: user?.email, updated_by: user?.email, updated_at: ahora
         }]).select()
@@ -518,6 +523,10 @@ export default function EditarOCPage() {
               {items.map((item, idx) => (
                 <div key={idx} className="border border-gray-100 rounded-lg p-4">
                   <div className="grid grid-cols-12 gap-2 items-center mb-3">
+                    <div className="col-span-1">
+                      <label className="text-xs text-gray-400 block mb-1">Ítem #</label>
+                      <p className="text-sm font-semibold text-gray-700">{idx + 1}</p>
+                    </div>
                     <div className="col-span-4">
                       <label className="text-xs text-gray-400 block mb-1">Descripción</label>
                       <input value={item.descripcion} onChange={e => actualizarItem(idx, 'descripcion', e.target.value)} className="w-full border border-gray-200 rounded px-2 py-1 text-xs" />
