@@ -249,7 +249,7 @@ export default function AdminPage() {
       )
     }
     cargarTodo()
-    alert(`Esquema "${nuevoNombre}" creado con éxito`)
+    alert(`Esquema "${nuevoNombre}" creado con exito`)
   }
 
   async function abrirClasifCuentas(clas: ItemLista) {
