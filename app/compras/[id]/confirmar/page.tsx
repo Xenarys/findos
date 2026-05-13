@@ -42,9 +42,12 @@ interface ItemConfirmar {
   cantidad_pendiente: number
   precio_unitario: number
   subtotal_bruto: number
+  monto_pendiente: number
+  monto_a_confirmar: number
   referencia_itsm: string
   cuenta_id: string | null
   condiciones: OcCondicion[]
+  es_servicio_global: boolean
 }
 
 export default function ConfirmarOCPage() {
@@ -96,10 +99,25 @@ export default function ConfirmarOCPage() {
     setOcSeleccionada(ocData.data as OC)
 
     if (itemsData.data) {
-      const itemsConDetalle = itemsData.data.map((i: any) => {
-        const cantidadYaConfirmada = i.cantidad_confirmada || 0
-        const cantidadPendiente = i.cantidad - cantidadYaConfirmada
+      const itemsConDetalle = await Promise.all(itemsData.data.map(async (i: any) => {
+        const esServicioGlobal = i.bienes_servicios?.unidad === 'Servicio Global'
         
+        let montoPendiente = i.precio_unitario
+        if (esServicioGlobal) {
+          // Calcular monto ya confirmado en confirmaciones activas
+          const { data: confsActivas } = await supabase
+            .from('oc_confirmaciones_items')
+            .select('subtotal_bruto_conf, oc_confirmaciones!inner(estado)')
+            .eq('item_id', i.id)
+            .neq('oc_confirmaciones.estado', 'anulada')
+          
+          const montoYaConfirmado = (confsActivas || []).reduce((sum: number, c: any) => sum + c.subtotal_bruto_conf, 0)
+          montoPendiente = i.precio_unitario - montoYaConfirmado
+        }
+
+        const cantidadYaConfirmada = i.cantidad_confirmada || 0
+        const cantidadPendiente = esServicioGlobal ? 1 : i.cantidad - cantidadYaConfirmada
+
         return {
           id: i.id,
           numero_item: i.numero_item || 0,
@@ -107,19 +125,22 @@ export default function ConfirmarOCPage() {
           codigo: i.bienes_servicios?.codigo || '—',
           unidad: i.bienes_servicios?.unidad || '—',
           cantidad_original: i.cantidad,
-          cantidad_confirmada: 0,
+          cantidad_confirmada: esServicioGlobal ? 1 : 0,
           cantidad_pendiente: cantidadPendiente,
           precio_unitario: i.precio_unitario,
           subtotal_bruto: i.subtotal,
+          monto_pendiente: montoPendiente,
+          monto_a_confirmar: 0,
           referencia_itsm: '',
           cuenta_id: i.cuenta_id,
+          es_servicio_global: esServicioGlobal,
           condiciones: (condsData.data || []).filter((c: any) => c.item_id === i.id).map((c: any) => ({
             ...c,
             tipo: c.condiciones_precio?.tipo || c.tipo,
             forma_calculo: c.condiciones_precio?.forma_calculo || c.forma_calculo
           }))
         }
-      })
+      }))
       setItems(itemsConDetalle)
     }
 
@@ -142,6 +163,13 @@ export default function ConfirmarOCPage() {
     setItems(nuevos)
   }
 
+  function actualizarMontoAConfirmar(idx: number, monto: number) {
+    const nuevos = [...items]
+    const maxMonto = nuevos[idx].monto_pendiente
+    nuevos[idx].monto_a_confirmar = Math.min(Math.max(0, monto), maxMonto)
+    setItems(nuevos)
+  }
+
   function actualizarReferenciaItsm(idx: number, referencia: string) {
     const nuevos = [...items]
     nuevos[idx].referencia_itsm = referencia
@@ -149,8 +177,13 @@ export default function ConfirmarOCPage() {
   }
 
   function calcularMontoConfirmacion(item: ItemConfirmar) {
-    const subtotal_bruto_conf = item.cantidad_confirmada * item.precio_unitario
-    const proporcion = item.cantidad_confirmada / item.cantidad_original
+    const subtotal_bruto_conf = item.es_servicio_global
+      ? item.monto_a_confirmar
+      : item.cantidad_confirmada * item.precio_unitario
+
+    const proporcion = item.es_servicio_global
+      ? item.monto_a_confirmar / item.precio_unitario
+      : item.cantidad_confirmada / item.cantidad_original
 
     let descuentos_item = 0
     item.condiciones.forEach(c => {
@@ -161,7 +194,7 @@ export default function ConfirmarOCPage() {
         } else if (c.forma_calculo === 'monto_fijo') {
           monto = c.valor * proporcion
         } else if (c.forma_calculo === 'monto_unidad') {
-          monto = c.valor * item.cantidad_confirmada
+          monto = c.valor * (item.es_servicio_global ? 1 : item.cantidad_confirmada)
         }
         descuentos_item += monto
       }
@@ -176,7 +209,7 @@ export default function ConfirmarOCPage() {
         } else if (c.forma_calculo === 'monto_fijo') {
           monto = c.valor * proporcion
         } else if (c.forma_calculo === 'monto_unidad') {
-          monto = c.valor * item.cantidad_confirmada
+          monto = c.valor * (item.es_servicio_global ? 1 : item.cantidad_confirmada)
         }
         descuentos_cabecera += monto
       }
@@ -191,6 +224,10 @@ export default function ConfirmarOCPage() {
   }
 
   const fmt = (n: number) => new Intl.NumberFormat('es-CL').format(Math.round(n))
+
+  function tieneAlgoAConfirmar() {
+    return items.some(i => i.es_servicio_global ? i.monto_a_confirmar > 0 : i.cantidad_confirmada > 0)
+  }
 
   async function generarNumeroConfirmacion() {
     const { data } = await supabase
@@ -208,7 +245,7 @@ export default function ConfirmarOCPage() {
 
   async function guardarConfirmacion() {
     if (!ocSeleccionada) return alert('OC no válida')
-    if (items.every(i => i.cantidad_confirmada === 0)) return alert('Confirma al menos 1 unidad')
+    if (!tieneAlgoAConfirmar()) return alert('Confirma al menos 1 unidad o monto')
     setGuardando(true)
 
     const { data: { user } } = await supabase.auth.getUser()
@@ -238,18 +275,21 @@ export default function ConfirmarOCPage() {
     let numeroItemConf = 0
 
     for (const item of items) {
-      if (item.cantidad_confirmada === 0) continue
+      const tieneConfirmacion = item.es_servicio_global
+        ? item.monto_a_confirmar > 0
+        : item.cantidad_confirmada > 0
+
+      if (!tieneConfirmacion) continue
 
       numeroItemConf++
       const montos = calcularMontoConfirmacion(item)
-      const cantidadTotalAhora = (item.cantidad_original - item.cantidad_pendiente) + item.cantidad_confirmada
 
       await supabase.from('oc_confirmaciones_items').insert([{
         confirmacion_id,
         item_id: item.id,
         numero_item: numeroItemConf,
         referencia_itsm: item.referencia_itsm || null,
-        cantidad_confirmada: item.cantidad_confirmada,
+        cantidad_confirmada: item.es_servicio_global ? 1 : item.cantidad_confirmada,
         cantidad_pendiente_original: item.cantidad_original,
         subtotal_bruto_conf: montos.subtotal_bruto,
         monto_descuentos_item: montos.descuentos_item,
@@ -260,10 +300,14 @@ export default function ConfirmarOCPage() {
         updated_at: ahora
       }])
 
-      await supabase.from('ordenes_compra_items').update({
-        cantidad_confirmada: cantidadTotalAhora,
-        updated_at: ahora
-      }).eq('id', item.id)
+      // Para Servicio Global no actualizamos cantidad_confirmada
+      if (!item.es_servicio_global) {
+        const cantidadTotalAhora = (item.cantidad_original - item.cantidad_pendiente) + item.cantidad_confirmada
+        await supabase.from('ordenes_compra_items').update({
+          cantidad_confirmada: cantidadTotalAhora,
+          updated_at: ahora
+        }).eq('id', item.id)
+      }
     }
 
     alert(`Confirmación ${numero_confirmacion} creada exitosamente`)
@@ -297,8 +341,16 @@ export default function ConfirmarOCPage() {
               <div className="space-y-4">
                 {items.map((item, idx) => {
                   const montos = calcularMontoConfirmacion(item)
+                  const hayConfirmacion = item.es_servicio_global ? item.monto_a_confirmar > 0 : item.cantidad_confirmada > 0
                   return (
                     <div key={item.id} className="border border-gray-100 rounded-lg p-4">
+
+                      {item.es_servicio_global && (
+                        <div className="mb-3 px-2 py-1 bg-amber-50 border border-amber-100 rounded text-xs text-amber-700">
+                          Servicio Global — confirma por monto parcial
+                        </div>
+                      )}
+
                       <div className="grid grid-cols-12 gap-2 mb-3">
                         <div className="col-span-1">
                           <label className="text-xs text-gray-400 block mb-1">OC #</label>
@@ -317,26 +369,39 @@ export default function ConfirmarOCPage() {
                           <p className="text-xs text-gray-600">{item.unidad}</p>
                         </div>
                         <div className="col-span-1">
-                          <label className="text-xs text-gray-400 block mb-1">Precio u.</label>
+                          <label className="text-xs text-gray-400 block mb-1">{item.es_servicio_global ? 'Total' : 'Precio u.'}</label>
                           <p className="text-xs font-mono text-gray-600">{fmt(item.precio_unitario)}</p>
                         </div>
-                        <div className="col-span-1">
-                          <label className="text-xs text-gray-400 block mb-1">Pendiente</label>
-                          <p className="text-xs font-mono text-gray-600">{item.cantidad_pendiente}</p>
-                        </div>
-                        <div className="col-span-1">
-                          <label className="text-xs text-gray-400 block mb-1">Confirmar</label>
-                          <input
-                            type="number"
-                            min="0"
-                            max={item.cantidad_pendiente}
-                            value={item.cantidad_confirmada}
-                            onChange={e => actualizarCantidadConfirmada(idx, parseFloat(e.target.value) || 0)}
-                            className="w-full border border-gray-200 rounded px-2 py-1 text-xs text-right"
-                          />
+                        <div className="col-span-2">
+                          <label className="text-xs text-gray-400 block mb-1">{item.es_servicio_global ? 'Monto pendiente' : 'Pendiente'}</label>
+                          <p className="text-xs font-mono text-gray-600">
+                            {item.es_servicio_global ? fmt(item.monto_pendiente) : item.cantidad_pendiente}
+                          </p>
                         </div>
                         <div className="col-span-2">
-                          <label className="text-xs text-gray-400 block mb-1">Subtotal neto</label>
+                          <label className="text-xs text-gray-400 block mb-1">{item.es_servicio_global ? 'Monto a confirmar' : 'Confirmar'}</label>
+                          {item.es_servicio_global ? (
+                            <input
+                              type="number"
+                              min="0"
+                              max={item.monto_pendiente}
+                              value={item.monto_a_confirmar}
+                              onChange={e => actualizarMontoAConfirmar(idx, parseFloat(e.target.value) || 0)}
+                              className="w-full border border-gray-200 rounded px-2 py-1 text-xs text-right"
+                            />
+                          ) : (
+                            <input
+                              type="number"
+                              min="0"
+                              max={item.cantidad_pendiente}
+                              value={item.cantidad_confirmada}
+                              onChange={e => actualizarCantidadConfirmada(idx, parseFloat(e.target.value) || 0)}
+                              className="w-full border border-gray-200 rounded px-2 py-1 text-xs text-right"
+                            />
+                          )}
+                        </div>
+                        <div className="col-span-1">
+                          <label className="text-xs text-gray-400 block mb-1">Neto</label>
                           <p className="text-xs font-mono font-medium text-gray-700">{fmt(montos.subtotal_neto)}</p>
                         </div>
                       </div>
@@ -352,7 +417,7 @@ export default function ConfirmarOCPage() {
                         />
                       </div>
 
-                      {item.cantidad_confirmada > 0 && (
+                      {hayConfirmacion && (
                         <div className="bg-gray-50 rounded p-2 text-xs">
                           <div className="grid grid-cols-2 gap-2 mb-1">
                             <span className="text-gray-600">Subtotal bruto:</span>
@@ -386,7 +451,7 @@ export default function ConfirmarOCPage() {
               <button onClick={() => router.push(`/compras/${id}`)} className="px-4 py-2 text-sm border border-gray-200 rounded-lg text-gray-600">
                 Cancelar
               </button>
-              <button onClick={guardarConfirmacion} disabled={guardando || items.every(i => i.cantidad_confirmada === 0)} className="px-6 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
+              <button onClick={guardarConfirmacion} disabled={guardando || !tieneAlgoAConfirmar()} className="px-6 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
                 {guardando ? 'Guardando...' : 'Guardar Confirmación'}
               </button>
             </div>

@@ -159,6 +159,10 @@ export default function NuevaOCPage() {
 
   function actualizarItem(idx: number, campo: string, valor: any) {
     const nuevos = [...items]
+    // Si es Servicio Global, cantidad siempre = 1
+    if (campo === 'cantidad' && nuevos[idx].bien?.unidad === 'Servicio Global') {
+      valor = 1
+    }
     nuevos[idx] = calcularItem({ ...nuevos[idx], [campo]: valor })
     setItems(nuevos)
   }
@@ -316,18 +320,18 @@ export default function NuevaOCPage() {
     const oc_id = ocData[0].id
 
     for (const item of items) {
-  const numeroItem = items.indexOf(item) + 1
-  const { data: itemData } = await supabase.from('ordenes_compra_items').insert([{
-      orden_compra_id: oc_id,
-      bien_servicio_id: item.bien_servicio_id,
-      descripcion: item.descripcion,
-      cantidad: item.cantidad,
-      precio_unitario: item.precio_unitario,
-      subtotal: item.subtotal_bruto,
-      numero_item: numeroItem,
-      cantidad_confirmada: 0,
-      documento_abierto: true,
-      cuenta_id: item.cuenta_id,
+      const numeroItem = items.indexOf(item) + 1
+      const { data: itemData } = await supabase.from('ordenes_compra_items').insert([{
+        orden_compra_id: oc_id,
+        bien_servicio_id: item.bien_servicio_id,
+        descripcion: item.descripcion,
+        cantidad: item.cantidad,
+        precio_unitario: item.precio_unitario,
+        subtotal: item.subtotal_bruto,
+        numero_item: numeroItem,
+        cantidad_confirmada: 0,
+        documento_abierto: true,
+        cuenta_id: item.cuenta_id,
         created_by: user?.email,
         updated_by: user?.email,
         updated_at: ahora
@@ -456,93 +460,109 @@ export default function NuevaOCPage() {
             <p className="text-sm text-gray-400 text-center py-4">No hay ítems</p>
           ) : (
             <div className="space-y-4">
-              {items.map((item, idx) => (
-                <div key={idx} className="border border-gray-100 rounded-lg p-4">
-                  <div className="grid grid-cols-12 gap-2 items-center mb-3">
-                    <div className="col-span-1">
-                      <label className="text-xs text-gray-400 block mb-1">Ítem #</label>
-                      <p className="text-sm font-semibold text-gray-700">{idx + 1}</p>
-                    </div>
-                    <div className="col-span-4">
-                      <label className="text-xs text-gray-400 block mb-1">Descripción</label>
-                      <input value={item.descripcion} onChange={e => actualizarItem(idx, 'descripcion', e.target.value)} className="w-full border border-gray-200 rounded px-2 py-1 text-xs" />
-                    </div>
-                    <div className="col-span-1 text-center">
-                      <label className="text-xs text-gray-400 block mb-1">Unidad</label>
-                      <span className="text-xs text-gray-500">{item.bien?.unidad || '—'}</span>
-                    </div>
-                    <div className="col-span-2">
-                      <label className="text-xs text-gray-400 block mb-1">Cantidad</label>
-                      <input type="number" value={item.cantidad} min="0" step="0.01"
-                        onChange={e => actualizarItem(idx, 'cantidad', parseFloat(e.target.value) || 0)}
-                        className="w-full border border-gray-200 rounded px-2 py-1 text-xs text-right" />
-                    </div>
-                    <div className="col-span-2">
-                      <label className="text-xs text-gray-400 block mb-1">Precio unit.</label>
-                      <input type="number" value={item.precio_unitario} min="0"
-                        onChange={e => actualizarItem(idx, 'precio_unitario', parseFloat(e.target.value) || 0)}
-                        className="w-full border border-gray-200 rounded px-2 py-1 text-xs text-right" />
-                    </div>
-                    <div className="col-span-2">
-                      <label className="text-xs text-gray-400 block mb-1">Subtotal bruto</label>
-                      <span className="text-xs font-mono font-medium text-gray-700 block text-right">{fmt(item.subtotal_bruto)}</span>
-                    </div>
-                    <div className="col-span-1 flex justify-end">
-                      <button onClick={() => eliminarItem(idx)} className="text-red-400 hover:text-red-600 text-sm">✕</button>
-                    </div>
-                  </div>
-
-                  {/* Condiciones del ítem */}
-                  <div className="mt-2 pl-2 border-l-2 border-amber-100">
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="text-xs text-amber-700 font-medium">Condiciones precio</span>
-                      <select onChange={e => { if (e.target.value) { agregarCondicionItem(idx, e.target.value); e.target.value = '' } }}
-                        className="text-xs border border-gray-200 rounded px-2 py-0.5 bg-white">
-                        <option value="">+ agregar</option>
-                        {condPrecioDisp.filter(c => c.nivel === 'item' || c.nivel === 'ambos').map(c => (
-                          <option key={c.id} value={c.id}>{c.nombre}</option>
-                        ))}
-                      </select>
-                    </div>
-                    {item.condiciones.map(c => (
-                      <div key={c.condicion_precio_id} className="flex items-center gap-2 mb-1">
-                        <span className={`text-xs px-1.5 py-0.5 rounded ${c.tipo === 'descuento' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
-                          {c.tipo === 'descuento' ? '-' : '+'} {c.abreviatura}
-                        </span>
-                        <input type="number" value={c.valor} min="0" step="0.01"
-                          onChange={e => actualizarCondicionItem(idx, c.condicion_precio_id, parseFloat(e.target.value) || 0)}
-                          className="w-20 border border-gray-200 rounded px-2 py-0.5 text-xs text-right" />
-                        <span className="text-xs text-gray-400">{c.forma_calculo === 'porcentual' ? '%' : '$'}</span>
-                        <span className="text-xs font-mono text-gray-600">{fmt(c.monto_calculado)}</span>
-                        <button onClick={() => eliminarCondicionItem(idx, c.condicion_precio_id)} className="text-red-400 text-xs">✕</button>
+              {items.map((item, idx) => {
+                const esServicioGlobal = item.bien?.unidad === 'Servicio Global'
+                return (
+                  <div key={idx} className="border border-gray-100 rounded-lg p-4">
+                    <div className="grid grid-cols-12 gap-2 items-center mb-3">
+                      <div className="col-span-1">
+                        <label className="text-xs text-gray-400 block mb-1">Ítem #</label>
+                        <p className="text-sm font-semibold text-gray-700">{idx + 1}</p>
                       </div>
-                    ))}
-                  </div>
-
-                  {/* Impuestos del ítem */}
-                  <div className="mt-2 pl-2 border-l-2 border-blue-100">
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="text-xs text-blue-700 font-medium">Impuestos</span>
-                      <select onChange={e => { if (e.target.value) { agregarImpuestoItem(idx, e.target.value); e.target.value = '' } }}
-                        className="text-xs border border-gray-200 rounded px-2 py-0.5 bg-white">
-                        <option value="">+ agregar</option>
-                        {impuestosDisp.map(i => (
-                          <option key={i.id} value={i.id}>{i.codigo} · {i.nombre}</option>
-                        ))}
-                      </select>
-                    </div>
-                    {item.impuestos.map(imp => (
-                      <div key={imp.impuesto_id} className="flex items-center gap-2 mb-1">
-                        <span className="text-xs px-1.5 py-0.5 rounded bg-blue-50 text-blue-700">{imp.codigo}</span>
-                        <span className="text-xs text-gray-500">{imp.porcentaje}%</span>
-                        <span className="text-xs font-mono text-gray-600">{fmt(imp.monto_calculado)}</span>
-                        {imp.es_automatico && <span className="text-xs text-gray-400">(auto)</span>}
-                        {!imp.es_automatico && <button onClick={() => eliminarImpuestoItem(idx, imp.impuesto_id)} className="text-red-400 text-xs">✕</button>}
+                      <div className="col-span-4">
+                        <label className="text-xs text-gray-400 block mb-1">Descripción</label>
+                        <input value={item.descripcion} onChange={e => actualizarItem(idx, 'descripcion', e.target.value)} className="w-full border border-gray-200 rounded px-2 py-1 text-xs" />
                       </div>
-                    ))}
+                      <div className="col-span-1 text-center">
+                        <label className="text-xs text-gray-400 block mb-1">Unidad</label>
+                        <span className="text-xs text-gray-500">{item.bien?.unidad || '—'}</span>
+                      </div>
+                      <div className="col-span-2">
+                        <label className="text-xs text-gray-400 block mb-1">Cantidad</label>
+                        {esServicioGlobal ? (
+                          <div>
+                            <p className="text-xs font-mono text-gray-400 text-right border border-gray-100 bg-gray-50 rounded px-2 py-1">1</p>
+                            <p className="text-xs text-amber-600 mt-0.5">Fija = 1</p>
+                          </div>
+                        ) : (
+                          <input type="number" value={item.cantidad} min="0" step="0.01"
+                            onChange={e => actualizarItem(idx, 'cantidad', parseFloat(e.target.value) || 0)}
+                            className="w-full border border-gray-200 rounded px-2 py-1 text-xs text-right" />
+                        )}
+                      </div>
+                      <div className="col-span-2">
+                        <label className="text-xs text-gray-400 block mb-1">{esServicioGlobal ? 'Monto total' : 'Precio unit.'}</label>
+                        <input type="number" value={item.precio_unitario} min="0"
+                          onChange={e => actualizarItem(idx, 'precio_unitario', parseFloat(e.target.value) || 0)}
+                          className="w-full border border-gray-200 rounded px-2 py-1 text-xs text-right" />
+                      </div>
+                      <div className="col-span-2">
+                        <label className="text-xs text-gray-400 block mb-1">Subtotal bruto</label>
+                        <span className="text-xs font-mono font-medium text-gray-700 block text-right">{fmt(item.subtotal_bruto)}</span>
+                      </div>
+                      <div className="col-span-1 flex justify-end">
+                        <button onClick={() => eliminarItem(idx)} className="text-red-400 hover:text-red-600 text-sm">✕</button>
+                      </div>
+                    </div>
+
+                    {esServicioGlobal && (
+                      <div className="mb-2 px-2 py-1 bg-amber-50 border border-amber-100 rounded text-xs text-amber-700">
+                        Servicio Global: se confirmará por montos parciales hasta completar el total
+                      </div>
+                    )}
+
+                    {/* Condiciones del ítem */}
+                    <div className="mt-2 pl-2 border-l-2 border-amber-100">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-xs text-amber-700 font-medium">Condiciones precio</span>
+                        <select onChange={e => { if (e.target.value) { agregarCondicionItem(idx, e.target.value); e.target.value = '' } }}
+                          className="text-xs border border-gray-200 rounded px-2 py-0.5 bg-white">
+                          <option value="">+ agregar</option>
+                          {condPrecioDisp.filter(c => c.nivel === 'item' || c.nivel === 'ambos').map(c => (
+                            <option key={c.id} value={c.id}>{c.nombre}</option>
+                          ))}
+                        </select>
+                      </div>
+                      {item.condiciones.map(c => (
+                        <div key={c.condicion_precio_id} className="flex items-center gap-2 mb-1">
+                          <span className={`text-xs px-1.5 py-0.5 rounded ${c.tipo === 'descuento' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                            {c.tipo === 'descuento' ? '-' : '+'} {c.abreviatura}
+                          </span>
+                          <input type="number" value={c.valor} min="0" step="0.01"
+                            onChange={e => actualizarCondicionItem(idx, c.condicion_precio_id, parseFloat(e.target.value) || 0)}
+                            className="w-20 border border-gray-200 rounded px-2 py-0.5 text-xs text-right" />
+                          <span className="text-xs text-gray-400">{c.forma_calculo === 'porcentual' ? '%' : '$'}</span>
+                          <span className="text-xs font-mono text-gray-600">{fmt(c.monto_calculado)}</span>
+                          <button onClick={() => eliminarCondicionItem(idx, c.condicion_precio_id)} className="text-red-400 text-xs">✕</button>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Impuestos del ítem */}
+                    <div className="mt-2 pl-2 border-l-2 border-blue-100">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-xs text-blue-700 font-medium">Impuestos</span>
+                        <select onChange={e => { if (e.target.value) { agregarImpuestoItem(idx, e.target.value); e.target.value = '' } }}
+                          className="text-xs border border-gray-200 rounded px-2 py-0.5 bg-white">
+                          <option value="">+ agregar</option>
+                          {impuestosDisp.map(i => (
+                            <option key={i.id} value={i.id}>{i.codigo} · {i.nombre}</option>
+                          ))}
+                        </select>
+                      </div>
+                      {item.impuestos.map(imp => (
+                        <div key={imp.impuesto_id} className="flex items-center gap-2 mb-1">
+                          <span className="text-xs px-1.5 py-0.5 rounded bg-blue-50 text-blue-700">{imp.codigo}</span>
+                          <span className="text-xs text-gray-500">{imp.porcentaje}%</span>
+                          <span className="text-xs font-mono text-gray-600">{fmt(imp.monto_calculado)}</span>
+                          {imp.es_automatico && <span className="text-xs text-gray-400">(auto)</span>}
+                          {!imp.es_automatico && <button onClick={() => eliminarImpuestoItem(idx, imp.impuesto_id)} className="text-red-400 text-xs">✕</button>}
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           )}
         </div>

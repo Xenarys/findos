@@ -34,6 +34,7 @@ export default function DetalleOCPage() {
   const [confirmaciones, setConfirmaciones] = useState<Confirmacion[]>([])
   const [condiciones, setCondiciones] = useState<any[]>([])
   const [impuestos, setImpuestos] = useState<any[]>([])
+  const [montosConfirmadosSG, setMontosConfirmadosSG] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
   const [emitiendo, setEmitiendo] = useState(false)
   const [anulando, setAnulando] = useState(false)
@@ -52,9 +53,25 @@ export default function DetalleOCPage() {
     ])
 
     if (ocData.data) setOc(ocData.data)
-    if (itemsData.data) setItems(itemsData.data)
     if (condsData.data) setCondiciones(condsData.data)
     if (impsData.data) setImpuestos(impsData.data)
+
+    if (itemsData.data) {
+      setItems(itemsData.data)
+
+      // Calcular montos confirmados activos para Servicio Global
+      const itemsSG = itemsData.data.filter((i: any) => i.bienes_servicios?.unidad === 'Servicio Global')
+      const montos: Record<string, number> = {}
+      for (const item of itemsSG) {
+        const { data: confsActivas } = await supabase
+          .from('oc_confirmaciones_items')
+          .select('subtotal_bruto_conf, oc_confirmaciones!inner(estado)')
+          .eq('item_id', item.id)
+          .neq('oc_confirmaciones.estado', 'anulada')
+        montos[item.id] = (confsActivas || []).reduce((sum: number, c: any) => sum + c.subtotal_bruto_conf, 0)
+      }
+      setMontosConfirmadosSG(montos)
+    }
 
     if (confsData.data) {
       const confsConTotales = await Promise.all(confsData.data.map(async (conf: any) => {
@@ -158,23 +175,43 @@ export default function DetalleOCPage() {
                   <th className="text-center py-2 text-gray-600 font-medium">Unidad</th>
                   <th className="text-right py-2 text-gray-600 font-medium">Cantidad</th>
                   <th className="text-right py-2 text-gray-600 font-medium">Confirmada</th>
+                  <th className="text-right py-2 text-gray-600 font-medium">Disponible</th>
                   <th className="text-right py-2 text-gray-600 font-medium">Precio u.</th>
                   <th className="text-right py-2 text-gray-600 font-medium">Subtotal</th>
                 </tr>
               </thead>
               <tbody>
-                {items.map((item) => (
-                  <tr key={item.id} className="border-b border-gray-50 hover:bg-gray-50">
-                    <td className="py-3 font-semibold text-gray-700">{item.numero_item}</td>
-                    <td className="py-3 font-mono text-xs text-gray-600">{item.bienes_servicios?.codigo || '—'}</td>
-                    <td className="py-3 text-gray-700">{item.descripcion}</td>
-                    <td className="py-3 text-center text-gray-600">{item.bienes_servicios?.unidad || '—'}</td>
-                    <td className="py-3 text-right font-mono text-gray-700">{item.cantidad}</td>
-                    <td className="py-3 text-right font-mono text-gray-700">{item.cantidad_confirmada || 0}</td>
-                    <td className="py-3 text-right font-mono text-gray-700">{fmt(item.precio_unitario)}</td>
-                    <td className="py-3 text-right font-mono font-medium text-gray-800">{fmt(item.subtotal)}</td>
-                  </tr>
-                ))}
+                {items.map((item) => {
+                  const esServicioGlobal = item.bienes_servicios?.unidad === 'Servicio Global'
+                  const montoConfirmado = montosConfirmadosSG[item.id] || 0
+                  const montoDisponible = item.precio_unitario - montoConfirmado
+                  return (
+                    <tr key={item.id} className="border-b border-gray-50 hover:bg-gray-50">
+                      <td className="py-3 font-semibold text-gray-700">{item.numero_item}</td>
+                      <td className="py-3 font-mono text-xs text-gray-600">{item.bienes_servicios?.codigo || '—'}</td>
+                      <td className="py-3 text-gray-700">{item.descripcion}</td>
+                      <td className="py-3 text-center text-gray-600">{item.bienes_servicios?.unidad || '—'}</td>
+                      <td className="py-3 text-right font-mono text-gray-700">
+                        {esServicioGlobal ? '—' : item.cantidad}
+                      </td>
+                      <td className="py-3 text-right font-mono text-gray-700">
+                        {esServicioGlobal
+                          ? <span className="text-xs text-gray-500">{fmt(montoConfirmado)}</span>
+                          : (item.cantidad_confirmada || 0)}
+                      </td>
+                      <td className="py-3 text-right font-mono">
+                        {esServicioGlobal
+                          ? <span className={montoDisponible <= 0 ? 'text-red-500' : 'text-green-600'}>{fmt(montoDisponible)}</span>
+                          : <span className={item.cantidad - (item.cantidad_confirmada || 0) <= 0 ? 'text-red-500' : 'text-green-600'}>
+                              {item.cantidad - (item.cantidad_confirmada || 0)}
+                            </span>
+                        }
+                      </td>
+                      <td className="py-3 text-right font-mono text-gray-700">{fmt(item.precio_unitario)}</td>
+                      <td className="py-3 text-right font-mono font-medium text-gray-800">{fmt(item.subtotal)}</td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
