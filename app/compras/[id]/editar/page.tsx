@@ -31,7 +31,7 @@ interface ItemForm {
   id?: string
   bien_servicio_id: string; descripcion: string
   cantidad: number; precio_unitario: number
-  subtotal_bruto: number; subtotal_neto: number
+  subtotal_bruto: number
   bien?: BienServicio; impuestos: ItemImpuesto[]
   condiciones: ItemCondicion[]; cuenta_id: string | null
 }
@@ -116,7 +116,6 @@ export default function EditarOCPage() {
           cantidad: i.cantidad,
           precio_unitario: i.precio_unitario,
           subtotal_bruto: i.subtotal,
-          subtotal_neto: i.subtotal,
           bien: i.bienes_servicios,
           cuenta_id: i.cuenta_id || null,
           impuestos: impsItem.map((imp: any) => ({
@@ -144,7 +143,6 @@ export default function EditarOCPage() {
       setItems(itemsConDetalle)
     }
 
-    // Condiciones e impuestos de cabecera
     if (condsOC.data) {
       setCondsCabecera((condsOC.data as any[]).filter(c => !c.item_id).map(c => ({
         id: c.id,
@@ -212,7 +210,7 @@ export default function EditarOCPage() {
     }
     setItems([...items, {
       bien_servicio_id: bien.id, descripcion: bien.descripcion,
-      cantidad: 1, precio_unitario: 0, subtotal_bruto: 0, subtotal_neto: 0,
+      cantidad: 1, precio_unitario: 0, subtotal_bruto: 0,
       bien, impuestos: impuestosAuto, condiciones: [], cuenta_id: cuentaItem
     }])
     setBienSeleccionado('')
@@ -220,20 +218,20 @@ export default function EditarOCPage() {
 
   function calcularItem(item: ItemForm): ItemForm {
     const subtotal_bruto = item.cantidad * item.precio_unitario
-    let subtotal_neto = subtotal_bruto
+    let base_imponible = subtotal_bruto
     const condiciones = item.condiciones.map(c => {
       let monto = 0
       if (c.forma_calculo === 'porcentual') monto = subtotal_bruto * c.valor / 100
       else if (c.forma_calculo === 'monto_fijo') monto = c.valor
       else if (c.forma_calculo === 'monto_unidad') monto = c.valor * item.cantidad
-      if (c.tipo === 'descuento') subtotal_neto -= monto
-      else subtotal_neto += monto
+      if (c.tipo === 'descuento') base_imponible -= monto
+      else base_imponible += monto
       return { ...c, monto_calculado: monto }
     })
     const impuestos = item.impuestos.map(imp => ({
-      ...imp, monto_calculado: Math.round(subtotal_neto * imp.porcentaje / 100)
+      ...imp, monto_calculado: Math.round(base_imponible * imp.porcentaje / 100)
     }))
-    return { ...item, subtotal_bruto, subtotal_neto, condiciones, impuestos }
+    return { ...item, subtotal_bruto, condiciones, impuestos }
   }
 
   function actualizarItem(idx: number, campo: string, valor: any) {
@@ -344,7 +342,7 @@ export default function EditarOCPage() {
     setImpsCabecera(impsCabecera.filter(i => i.impuesto_id !== impId))
   }
 
-  const totalNeto = items.reduce((sum, i) => sum + i.subtotal_neto, 0)
+  const totalNeto = items.reduce((sum, i) => sum + i.subtotal_bruto, 0)
   const totalCondsCab = condsCabecera.reduce((sum, c) => sum + c.monto_calculado, 0)
   const totalImpItems = items.reduce((sum, i) => sum + i.impuestos.reduce((s, imp) => s + imp.monto_calculado, 0), 0)
   const totalImpCab = impsCabecera.reduce((sum, i) => sum + i.monto_calculado, 0)
@@ -370,25 +368,21 @@ export default function EditarOCPage() {
 
     if (error) { alert('Error: ' + error.message); setGuardando(false); return }
 
-    // Eliminar ítems borrados (cascade elimina sus impuestos y condiciones)
     if (itemsEliminados.length > 0) {
       await supabase.from('ordenes_compra_items').delete().in('id', itemsEliminados)
     }
 
-    // Eliminar condiciones e impuestos de cabecera para reinsertarlos
     await supabase.from('oc_condiciones').delete().eq('orden_compra_id', id as string).is('item_id', null)
     await supabase.from('oc_impuestos').delete().eq('orden_compra_id', id as string).is('item_id', null)
 
     for (const item of items) {
       if (item.id) {
-        // Actualizar ítem existente
         await supabase.from('ordenes_compra_items').update({
           descripcion: item.descripcion, cantidad: item.cantidad,
-          precio_unitario: item.precio_unitario, subtotal: item.subtotal_neto,
+          precio_unitario: item.precio_unitario, subtotal: item.subtotal_bruto,
           cuenta_id: item.cuenta_id, updated_by: user?.email, updated_at: ahora
         }).eq('id', item.id)
 
-        // Eliminar y reinsertar impuestos y condiciones del ítem
         await supabase.from('oc_impuestos').delete().eq('item_id', item.id)
         await supabase.from('oc_condiciones').delete().eq('item_id', item.id)
 
@@ -410,11 +404,10 @@ export default function EditarOCPage() {
           })))
         }
       } else {
-        // Insertar ítem nuevo
         const { data: itemData } = await supabase.from('ordenes_compra_items').insert([{
           orden_compra_id: id, bien_servicio_id: item.bien_servicio_id,
           descripcion: item.descripcion, cantidad: item.cantidad,
-          precio_unitario: item.precio_unitario, subtotal: item.subtotal_neto,
+          precio_unitario: item.precio_unitario, subtotal: item.subtotal_bruto,
           cantidad_confirmada: 0, documento_abierto: true,
           cuenta_id: item.cuenta_id, created_by: user?.email, updated_by: user?.email, updated_at: ahora
         }]).select()
@@ -439,7 +432,6 @@ export default function EditarOCPage() {
       }
     }
 
-    // Reinsertar condiciones e impuestos de cabecera
     if (condsCabecera.length > 0) {
       await supabase.from('oc_condiciones').insert(condsCabecera.map(c => ({
         orden_compra_id: id, item_id: null, condicion_precio_id: c.condicion_precio_id,
@@ -547,8 +539,8 @@ export default function EditarOCPage() {
                         className="w-full border border-gray-200 rounded px-2 py-1 text-xs text-right" />
                     </div>
                     <div className="col-span-2">
-                      <label className="text-xs text-gray-400 block mb-1">Subtotal</label>
-                      <span className="text-xs font-mono font-medium text-gray-700 block text-right">{fmt(item.subtotal_neto)}</span>
+                      <label className="text-xs text-gray-400 block mb-1">Subtotal bruto</label>
+                      <span className="text-xs font-mono font-medium text-gray-700 block text-right">{fmt(item.subtotal_bruto)}</span>
                     </div>
                     <div className="col-span-1 flex justify-end">
                       <button onClick={() => eliminarItem(idx)} className="text-red-400 hover:text-red-600 text-sm">✕</button>
@@ -666,7 +658,7 @@ export default function EditarOCPage() {
           <div className="flex justify-end">
             <div className="w-72 space-y-2 text-sm">
               <div className="flex justify-between text-gray-600">
-                <span>Total neto ítems</span>
+                <span>Total bruto ítems</span>
                 <span className="font-mono">{fmt(totalNeto)}</span>
               </div>
               {condsCabecera.map(c => (

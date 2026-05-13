@@ -44,7 +44,6 @@ interface ItemForm {
   cantidad: number
   precio_unitario: number
   subtotal_bruto: number
-  subtotal_neto: number
   bien?: BienServicio
   impuestos: ItemImpuesto[]
   condiciones: ItemCondicion[]
@@ -179,7 +178,6 @@ export default function NuevaOCPage() {
       cantidad: 1,
       precio_unitario: 0,
       subtotal_bruto: 0,
-      subtotal_neto: 0,
       bien,
       impuestos: impuestosAuto,
       condiciones: [],
@@ -188,26 +186,39 @@ export default function NuevaOCPage() {
     setBienSeleccionado('')
   }
 
+  /** 
+   * CÁLCULO CORRECTO:
+   * 1. subtotal_bruto = cantidad × precio_unitario (SIN descuentos)
+   * 2. condiciones se aplican al bruto
+   * 3. base_imponible = bruto + condiciones
+   * 4. impuestos se calculan sobre la base_imponible
+   */
   function calcularItem(item: ItemForm): ItemForm {
+    // PASO 1: Calcular bruto (sin descuentos)
     const subtotal_bruto = item.cantidad * item.precio_unitario
-    let subtotal_neto = subtotal_bruto
 
+    // PASO 2: Calcular condiciones (descuentos/recargos) y la base imponible
+    let base_imponible = subtotal_bruto
     const condiciones = item.condiciones.map(c => {
       let monto = 0
       if (c.forma_calculo === 'porcentual') monto = subtotal_bruto * c.valor / 100
       else if (c.forma_calculo === 'monto_fijo') monto = c.valor
       else if (c.forma_calculo === 'monto_unidad') monto = c.valor * item.cantidad
-      if (c.tipo === 'descuento') subtotal_neto -= monto
-      else subtotal_neto += monto
+      
+      // Descuentos restan, recargos suman
+      if (c.tipo === 'descuento') base_imponible -= monto
+      else base_imponible += monto
+      
       return { ...c, monto_calculado: monto }
     })
 
+    // PASO 3: Calcular impuestos sobre la base_imponible
     const impuestos = item.impuestos.map(imp => ({
       ...imp,
-      monto_calculado: Math.round(subtotal_neto * imp.porcentaje / 100)
+      monto_calculado: Math.round(base_imponible * imp.porcentaje / 100)
     }))
 
-    return { ...item, subtotal_bruto, subtotal_neto, condiciones, impuestos }
+    return { ...item, subtotal_bruto, condiciones, impuestos }
   }
 
   function actualizarItem(idx: number, campo: string, valor: any) {
@@ -289,7 +300,8 @@ export default function NuevaOCPage() {
     setCondsCabecera(condsCabecera.map(c => {
       if (c.condicion_precio_id !== condId) return c
       let monto = 0
-      if (c.forma_calculo === 'porcentual') monto = totalNeto * valor / 100
+      // Las condiciones de cabecera se aplican sobre el total neto de ítems
+      if (c.forma_calculo === 'porcentual') monto = totalNetoItems * valor / 100
       else monto = valor
       return { ...c, valor, monto_calculado: c.tipo === 'descuento' ? -monto : monto }
     }))
@@ -304,7 +316,8 @@ export default function NuevaOCPage() {
     const imp = impuestosDisp.find(i => i.id === impSelCab)
     if (!imp) return
     if (impsCabecera.some(i => i.impuesto_id === impSelCab)) return alert('Ya está agregado')
-    const monto = Math.round(totalNeto * imp.porcentaje / 100)
+    // Impuesto de cabecera se calcula sobre el total neto DESPUÉS de condiciones
+    const monto = Math.round(totalNetoConCondiciones * imp.porcentaje / 100)
     setImpsCabecera([...impsCabecera, {
       impuesto_id: imp.id, codigo: imp.codigo, nombre: imp.nombre,
       porcentaje: imp.porcentaje, monto_calculado: monto
@@ -316,12 +329,18 @@ export default function NuevaOCPage() {
     setImpsCabecera(impsCabecera.filter(i => i.impuesto_id !== impId))
   }
 
-  const totalNeto = items.reduce((sum, i) => sum + i.subtotal_neto, 0)
+  // CÁLCULOS DE TOTALES
+  const totalNetoItems = items.reduce((sum, i) => sum + i.subtotal_bruto, 0)
+  const totalCondicionesItems = items.reduce((sum, i) => sum + i.condiciones.reduce((s, c) => s + (c.tipo === 'descuento' ? -c.monto_calculado : c.monto_calculado), 0), 0)
+  const totalNetoConCondiciones = totalNetoItems + totalCondicionesItems
   const totalCondsCab = condsCabecera.reduce((sum, c) => sum + c.monto_calculado, 0)
+  const totalNeto = totalNetoConCondiciones + totalCondsCab
+  
   const totalImpItems = items.reduce((sum, i) => sum + i.impuestos.reduce((s, imp) => s + imp.monto_calculado, 0), 0)
   const totalImpCab = impsCabecera.reduce((sum, i) => sum + i.monto_calculado, 0)
   const totalImpuestos = totalImpItems + totalImpCab
-  const totalFinal = totalNeto + totalCondsCab + totalImpuestos
+  
+  const totalFinal = totalNeto + totalImpuestos
 
   const fmt = (n: number) => new Intl.NumberFormat('es-CL').format(Math.round(n))
 
@@ -357,10 +376,12 @@ export default function NuevaOCPage() {
     const ocId = oc[0].id
 
     for (const item of items) {
+      // ✅ IMPORTANTE: Guardar BRUTO, no neto
       const { data: itemData, error: itemError } = await supabase.from('ordenes_compra_items').insert([{
         orden_compra_id: ocId, bien_servicio_id: item.bien_servicio_id,
         descripcion: item.descripcion, cantidad: item.cantidad,
-        precio_unitario: item.precio_unitario, subtotal: item.subtotal_neto,
+        precio_unitario: item.precio_unitario, 
+        subtotal: item.subtotal_bruto,  // ✅ AQUÍ: subtotal_bruto, NO neto
         cantidad_confirmada: 0, documento_abierto: true,
         cuenta_id: item.cuenta_id,
         created_by: user?.email, updated_by: user?.email, updated_at: ahora
@@ -369,6 +390,7 @@ export default function NuevaOCPage() {
       if (itemError || !itemData) continue
       const itemId = itemData[0].id
 
+      // Guardar impuestos del ítem
       if (item.impuestos.length > 0) {
         await supabase.from('oc_impuestos').insert(item.impuestos.map(imp => ({
           orden_compra_id: ocId, item_id: itemId,
@@ -380,6 +402,7 @@ export default function NuevaOCPage() {
         })))
       }
 
+      // Guardar condiciones del ítem
       if (item.condiciones.length > 0) {
         await supabase.from('oc_condiciones').insert(item.condiciones.map(c => ({
           orden_compra_id: ocId, item_id: itemId,
@@ -391,6 +414,7 @@ export default function NuevaOCPage() {
       }
     }
 
+    // Guardar condiciones de cabecera
     if (condsCabecera.length > 0) {
       await supabase.from('oc_condiciones').insert(condsCabecera.map(c => ({
         orden_compra_id: ocId, item_id: null,
@@ -401,6 +425,7 @@ export default function NuevaOCPage() {
       })))
     }
 
+    // Guardar impuestos de cabecera
     if (impsCabecera.length > 0) {
       await supabase.from('oc_impuestos').insert(impsCabecera.map(i => ({
         orden_compra_id: ocId, item_id: null,
@@ -477,6 +502,7 @@ export default function NuevaOCPage() {
             <div className="space-y-4">
               {items.map((item, idx) => (
                 <div key={idx} className="border border-gray-100 rounded-lg p-4">
+                  {/* Fila principal del ítem */}
                   <div className="grid grid-cols-12 gap-2 items-center mb-3">
                     <div className="col-span-4">
                       <label className="text-xs text-gray-400 block mb-1">Descripción</label>
@@ -499,8 +525,8 @@ export default function NuevaOCPage() {
                         className="w-full border border-gray-200 rounded px-2 py-1 text-xs text-right" />
                     </div>
                     <div className="col-span-2">
-                      <label className="text-xs text-gray-400 block mb-1">Subtotal</label>
-                      <span className="text-xs font-mono font-medium text-gray-700 block text-right">{fmt(item.subtotal_neto)}</span>
+                      <label className="text-xs text-gray-400 block mb-1">Subtotal bruto</label>
+                      <span className="text-xs font-mono font-medium text-gray-700 block text-right">{fmt(item.subtotal_bruto)}</span>
                     </div>
                     <div className="col-span-1 flex justify-end">
                       <button onClick={() => eliminarItem(idx)} className="text-red-400 hover:text-red-600 text-sm">✕</button>
@@ -613,30 +639,57 @@ export default function NuevaOCPage() {
           ))}
         </div>
 
-        {/* TOTALES */}
+        {/* TOTALES DESGLOSADOS */}
         <div className="bg-white rounded-xl border border-gray-100 p-6 mb-6">
           <div className="flex justify-end">
             <div className="w-72 space-y-2 text-sm">
-              <div className="flex justify-between text-gray-600">
-                <span>Total neto ítems</span>
+              <div className="flex justify-between text-gray-600 font-medium">
+                <span>Total bruto ítems</span>
+                <span className="font-mono">{fmt(totalNetoItems)}</span>
+              </div>
+              {items.some(i => i.condiciones.length > 0) && (
+                <>
+                  <div className="text-xs border-t border-gray-100 pt-1 mt-1"></div>
+                  {items.map(item => item.condiciones.map(c => (
+                    <div key={c.condicion_precio_id} className="flex justify-between text-gray-500 text-xs">
+                      <span className="ml-2">{c.tipo === 'descuento' ? '-' : '+'} {c.nombre}</span>
+                      <span className="font-mono">{fmt(c.monto_calculado)}</span>
+                    </div>
+                  )))}
+                </>
+              )}
+              {condsCabecera.length > 0 && (
+                <>
+                  <div className="text-xs border-t border-gray-100 pt-1 mt-1"></div>
+                  {condsCabecera.map(c => (
+                    <div key={c.condicion_precio_id} className="flex justify-between text-gray-500">
+                      <span>{c.tipo === 'descuento' ? '-' : '+'} {c.nombre}</span>
+                      <span className="font-mono text-xs">{fmt(Math.abs(c.monto_calculado))}</span>
+                    </div>
+                  ))}
+                </>
+              )}
+              <div className="flex justify-between text-gray-600 border-t border-gray-100 pt-2 font-medium">
+                <span>Neto</span>
                 <span className="font-mono">{fmt(totalNeto)}</span>
               </div>
-              {condsCabecera.map(c => (
-                <div key={c.condicion_precio_id} className="flex justify-between text-gray-500">
-                  <span>{c.tipo === 'descuento' ? '-' : '+'} {c.nombre}</span>
-                  <span className="font-mono">{fmt(Math.abs(c.monto_calculado))}</span>
-                </div>
-              ))}
-              <div className="flex justify-between text-gray-500">
-                <span>Impuestos ítems</span>
-                <span className="font-mono">{fmt(totalImpItems)}</span>
-              </div>
-              {impsCabecera.map(i => (
-                <div key={i.impuesto_id} className="flex justify-between text-gray-500">
-                  <span>+ {i.nombre}</span>
-                  <span className="font-mono">{fmt(i.monto_calculado)}</span>
-                </div>
-              ))}
+              {(totalImpItems > 0 || totalImpCab > 0) && (
+                <>
+                  <div className="text-xs border-t border-gray-100 pt-1 mt-1"></div>
+                  {items.map(item => item.impuestos.map(imp => (
+                    <div key={imp.impuesto_id} className="flex justify-between text-gray-500 text-xs">
+                      <span className="ml-2">+ {imp.nombre}</span>
+                      <span className="font-mono">{fmt(imp.monto_calculado)}</span>
+                    </div>
+                  )))}
+                  {impsCabecera.map(i => (
+                    <div key={i.impuesto_id} className="flex justify-between text-gray-500 text-xs">
+                      <span>+ {i.nombre}</span>
+                      <span className="font-mono">{fmt(i.monto_calculado)}</span>
+                    </div>
+                  ))}
+                </>
+              )}
               <div className="flex justify-between font-semibold text-gray-800 border-t border-gray-100 pt-2 text-base">
                 <span>Total</span>
                 <span className="font-mono">{fmt(totalFinal)}</span>
