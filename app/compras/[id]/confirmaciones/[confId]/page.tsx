@@ -83,21 +83,39 @@ export default function DetalleConfirmacionPage() {
   const totalNeto = items.reduce((sum, i) => sum + i.subtotal_neto_conf, 0)
 
   async function anularConfirmacion() {
-    if (!window.confirm('¿Estás seguro de que deseas anular esta confirmación?')) return
-    
-    const { error } = await supabase
-      .from('oc_confirmaciones')
-      .update({ estado: 'anulada' })
-      .eq('id', confirmacion?.id)
-    
-    if (error) {
-      alert('Error: ' + error.message)
-      return
+  if (!window.confirm('¿Estás seguro de que deseas anular esta confirmación?')) return
+
+  // Restar cantidades de vuelta en los ítems de la OC
+  for (const item of items) {
+    const { data: ocItem } = await supabase
+      .from('ordenes_compra_items')
+      .select('cantidad_confirmada')
+      .eq('id', item.item_id)
+      .single()
+
+    if (ocItem) {
+      const nuevaCantidad = Math.max(0, ocItem.cantidad_confirmada - item.cantidad_confirmada)
+      await supabase
+        .from('ordenes_compra_items')
+        .update({ cantidad_confirmada: nuevaCantidad })
+        .eq('id', item.item_id)
     }
-    
-    alert('Confirmación anulada')
-    router.push(`/compras/${id}/confirmaciones`)
   }
+
+  // Anular la confirmación
+  const { error } = await supabase
+    .from('oc_confirmaciones')
+    .update({ estado: 'anulada' })
+    .eq('id', confirmacion?.id)
+
+  if (error) {
+    alert('Error: ' + error.message)
+    return
+  }
+
+  alert('Confirmación anulada')
+  router.push(`/compras/${id}/confirmaciones`)
+}
 
   if (loading) return <div className="min-h-screen bg-gray-50 flex items-center justify-center text-gray-400">Cargando...</div>
   if (!confirmacion) return <div className="min-h-screen bg-gray-50 flex items-center justify-center text-gray-400">Confirmación no encontrada</div>
