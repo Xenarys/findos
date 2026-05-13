@@ -4,102 +4,119 @@ import { useEffect, useState } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
-interface OC {
-  id: string
-  numero: string
-  fecha: string
-  estado: string
-  moneda: string
-  observaciones: string | null
-  total_neto: number
-  total_impuestos: number
-  total: number
-  documento_abierto: boolean
-  entidades?: { razon_social: string; rut: string }
-  condiciones_pago?: { nombre: string }
-}
-
 interface ItemOC {
   id: string
+  bien_servicio_id: string
   descripcion: string
   cantidad: number
+  cantidad_confirmada: number
   precio_unitario: number
   subtotal: number
-  cantidad_confirmada: number
-  documento_abierto: boolean
+  cuenta_id: string | null
   bienes_servicios?: { codigo: string; unidad: string }
 }
 
-interface OcImpuesto {
+interface Confirmacion {
   id: string
-  item_id: string | null
-  nivel: string
-  porcentaje: number
-  monto_calculado: number
-  es_automatico: boolean
-  impuestos?: { codigo: string; nombre: string }
-}
-
-interface OcCondicion {
-  id: string
-  item_id: string | null
-  nivel: string
-  valor: number
-  monto_calculado: number
-  condiciones_precio?: { nombre: string; abreviatura: string; tipo: string; forma_calculo: string }
+  numero_confirmacion: string
+  fecha_confirmacion: string
+  estado: string
+  total_neto: number
 }
 
 export default function DetalleOCPage() {
   const { id } = useParams()
   const router = useRouter()
-  const [oc, setOc] = useState<OC | null>(null)
+
+  const [oc, setOc] = useState<any>(null)
   const [items, setItems] = useState<ItemOC[]>([])
-  const [ocImpuestos, setOcImpuestos] = useState<OcImpuesto[]>([])
-  const [ocCondiciones, setOcCondiciones] = useState<OcCondicion[]>([])
+  const [confirmaciones, setConfirmaciones] = useState<Confirmacion[]>([])
+  const [condiciones, setCondiciones] = useState<any[]>([])
+  const [impuestos, setImpuestos] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [emitiendo, setEmitiendo] = useState(false)
+  const [anulando, setAnulando] = useState(false)
 
-  useEffect(() => { cargarOC() }, [id])
+  useEffect(() => { cargarTodo() }, [id])
 
-  async function cargarOC() {
+  async function cargarTodo() {
     setLoading(true)
-    const [ocData, itemsData, impsData, condsData] = await Promise.all([
-      supabase.from('ordenes_compra').select('*, entidades(razon_social, rut), condiciones_pago(nombre)').eq('id', id).single(),
+
+    const [ocData, itemsData, condsData, impsData, confsData] = await Promise.all([
+      supabase.from('ordenes_compra').select('*, entidades(razon_social, rut)').eq('id', id).single(),
       supabase.from('ordenes_compra_items').select('*, bienes_servicios(codigo, unidad)').eq('orden_compra_id', id).order('created_at'),
+      supabase.from('oc_condiciones').select('*, condiciones_precio(nombre, abreviatura, tipo)').eq('orden_compra_id', id),
       supabase.from('oc_impuestos').select('*, impuestos(codigo, nombre)').eq('orden_compra_id', id),
-      supabase.from('oc_condiciones').select('*, condiciones_precio(nombre, abreviatura, tipo, forma_calculo)').eq('orden_compra_id', id),
+      supabase.from('oc_confirmaciones').select('*').eq('orden_compra_id', id).order('fecha_confirmacion', { ascending: false })
     ])
+
     if (ocData.data) setOc(ocData.data)
     if (itemsData.data) setItems(itemsData.data)
-    if (impsData.data) setOcImpuestos(impsData.data)
-    if (condsData.data) setOcCondiciones(condsData.data)
-    setLoading(false)
-  }
+    if (condsData.data) setCondiciones(condsData.data)
+    if (impsData.data) setImpuestos(impsData.data)
 
-  async function cambiarEstado(nuevoEstado: string) {
-    if (!confirm(`¿Cambiar estado a "${nuevoEstado}"?`)) return
-    const { data: { user } } = await supabase.auth.getUser()
-    await supabase.from('ordenes_compra').update({
-      estado: nuevoEstado,
-      updated_by: user?.email,
-      updated_at: new Date().toISOString()
-    }).eq('id', id)
-    cargarOC()
+    // Cargar confirmaciones con totales
+    if (confsData.data) {
+      const confsConTotales = await Promise.all(confsData.data.map(async (conf: any) => {
+        const { data: items } = await supabase
+          .from('oc_confirmaciones_items')
+          .select('subtotal_neto_conf')
+          .eq('confirmacion_id', conf.id)
+        const total = items?.reduce((sum, i) => sum + i.subtotal_neto_conf, 0) || 0
+        return { ...conf, total_neto: total }
+      }))
+      setConfirmaciones(confsConTotales)
+    }
+
+    setLoading(false)
   }
 
   const fmt = (n: number) => new Intl.NumberFormat('es-CL').format(Math.round(n))
 
-  const estadoColor: any = {
-    borrador: 'bg-gray-50 text-gray-600',
-    emitida: 'bg-blue-50 text-blue-700',
-    cerrada: 'bg-green-50 text-green-700',
-    anulada: 'bg-red-50 text-red-700',
+  const totalNeto = items.reduce((sum, i) => sum + i.subtotal, 0)
+  const totalCondiciones = condiciones.reduce((sum, c) => sum + c.monto_calculado, 0)
+  const totalImpuestos = impuestos.reduce((sum, i) => sum + i.monto_calculado, 0)
+  const totalFinal = totalNeto + totalCondiciones + totalImpuestos
+
+  async function emitirOC() {
+    if (!window.confirm('¿Emitir esta OC? No podrá ser editada nuevamente.')) return
+    setEmitiendo(true)
+
+    const { error } = await supabase
+      .from('ordenes_compra')
+      .update({ estado: 'emitida' })
+      .eq('id', id)
+
+    if (error) {
+      alert('Error: ' + error.message)
+      setEmitiendo(false)
+      return
+    }
+
+    alert('OC emitida exitosamente')
+    cargarTodo()
+    setEmitiendo(false)
   }
 
-  // Helpers para filtrar por item
-  const impsItem = (itemId: string) => ocImpuestos.filter(i => i.item_id === itemId)
-  const condsItem = (itemId: string) => ocCondiciones.filter(c => c.item_id === itemId)
-  const impsCabecera = ocImpuestos.filter(i => !i.item_id)
-  const condsCabecera = ocCondiciones.filter(c => !c.item_id)
+  async function anularOC() {
+    if (!window.confirm('¿Anular esta OC? Esta acción no se puede deshacer.')) return
+    setAnulando(true)
+
+    const { error } = await supabase
+      .from('ordenes_compra')
+      .update({ estado: 'anulada', documento_abierto: false })
+      .eq('id', id)
+
+    if (error) {
+      alert('Error: ' + error.message)
+      setAnulando(false)
+      return
+    }
+
+    alert('OC anulada')
+    cargarTodo()
+    setAnulando(false)
+  }
 
   if (loading) return <div className="min-h-screen bg-gray-50 flex items-center justify-center text-gray-400">Cargando...</div>
   if (!oc) return <div className="min-h-screen bg-gray-50 flex items-center justify-center text-gray-400">OC no encontrada</div>
@@ -109,215 +126,217 @@ export default function DetalleOCPage() {
       <div className="max-w-5xl mx-auto px-4 py-8">
 
         {/* HEADER */}
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            <button onClick={() => router.push('/compras')} className="text-gray-400 hover:text-gray-600 text-sm">← Volver</button>
-            <h1 className="text-2xl font-semibold text-gray-800">{oc.numero}</h1>
-            <span className={`text-xs px-2 py-1 rounded-full ${estadoColor[oc.estado]}`}>
-              {oc.estado.charAt(0).toUpperCase() + oc.estado.slice(1)}
-            </span>
-          </div>
-          <div className="flex gap-2">
-            {oc.estado === 'borrador' && (
-              <>
-                <button onClick={() => router.push(`/compras/${id}/editar`)}
-                  className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50">
-                  Editar
-                </button>
-                <button onClick={() => cambiarEstado('emitida')}
-                  className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">
-                  Emitir OC
-                </button>
-                <button onClick={() => cambiarEstado('anulada')}
-                  className="px-3 py-1.5 text-sm border border-red-200 text-red-500 rounded-lg hover:bg-red-50">
-                  Anular
-                </button>
-              </>
-            )}
-            {oc.estado === 'emitida' && (
-              <>
-                <button onClick={() => router.push(`/compras/${id}/confirmar`)}
-                  className="px-3 py-1.5 text-sm bg-amber-500 text-white rounded-lg hover:bg-amber-600">
-                  Confirmar recepción
-                </button>
-                <button onClick={() => cambiarEstado('cerrada')}
-                  className="px-3 py-1.5 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700">
-                  Cerrar OC
-                </button>
-              </>
-            )}
-          </div>
+        <div className="flex items-center gap-3 mb-6">
+          <button onClick={() => router.push('/compras')} className="text-gray-400 hover:text-gray-600 text-sm">← Volver</button>
+          <h1 className="text-2xl font-semibold text-gray-800">Orden de Compra</h1>
         </div>
 
         {/* CABECERA */}
         <div className="bg-white rounded-xl border border-gray-100 p-6 mb-4">
-          <div className="grid grid-cols-3 gap-4 text-sm">
+          <div className="grid grid-cols-2 gap-6 mb-6">
             <div>
-              <p className="text-xs text-gray-400 mb-1">Proveedor</p>
-              <p className="font-medium">{oc.entidades?.razon_social}</p>
-              <p className="text-xs text-gray-400 font-mono">{oc.entidades?.rut}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-400 mb-1">Fecha</p>
-              <p className="font-medium">{oc.fecha}</p>
+              <p className="text-xs text-gray-500 mb-1">Número</p>
+              <p className="text-lg font-semibold text-gray-800">{oc.numero}</p>
             </div>
             <div>
-              <p className="text-xs text-gray-400 mb-1">Condición de pago</p>
-              <p className="font-medium">{oc.condiciones_pago?.nombre || '—'}</p>
+              <p className="text-xs text-gray-500 mb-1">Estado</p>
+              <span className={`text-sm px-2 py-1 rounded font-medium ${
+                oc.estado === 'borrador' ? 'bg-gray-100 text-gray-700' :
+                oc.estado === 'emitida' ? 'bg-blue-100 text-blue-700' :
+                'bg-red-100 text-red-700'
+              }`}>
+                {oc.estado === 'borrador' ? 'Borrador' :
+                 oc.estado === 'emitida' ? 'Emitida' : 'Anulada'}
+              </span>
             </div>
             <div>
-              <p className="text-xs text-gray-400 mb-1">Moneda</p>
-              <p className="font-medium">{oc.moneda}</p>
+              <p className="text-xs text-gray-500 mb-1">Proveedor</p>
+              <p className="text-sm text-gray-800">{oc.entidades?.razon_social}</p>
+              <p className="text-xs text-gray-500">{oc.entidades?.rut}</p>
             </div>
-            <div className="col-span-2">
-              <p className="text-xs text-gray-400 mb-1">Observaciones</p>
-              <p className="font-medium">{oc.observaciones || '—'}</p>
+            <div>
+              <p className="text-xs text-gray-500 mb-1">Fecha</p>
+              <p className="text-sm text-gray-800">{new Date(oc.fecha).toLocaleDateString('es-CL')}</p>
             </div>
+          </div>
+          <div className="border-t border-gray-100 pt-4">
+            <p className="text-xs text-gray-500 mb-1">Observaciones</p>
+            <p className="text-sm text-gray-700">{oc.observaciones || '—'}</p>
           </div>
         </div>
 
-        {/* ITEMS */}
+        {/* ÍTEMS */}
         <div className="bg-white rounded-xl border border-gray-100 p-6 mb-4">
           <h2 className="text-sm font-semibold text-gray-600 mb-4 uppercase tracking-wide">Ítems</h2>
-          <div className="space-y-4">
-            {items.map(item => (
-              <div key={item.id} className="border border-gray-100 rounded-lg p-4">
-                {/* Fila principal */}
-                <div className="grid grid-cols-8 gap-2 text-sm mb-2">
-                  <div className="col-span-1">
-                    <p className="text-xs text-gray-400 mb-1">Código</p>
-                    <p className="font-mono text-xs text-gray-500">{item.bienes_servicios?.codigo || '—'}</p>
-                  </div>
-                  <div className="col-span-3">
-                    <p className="text-xs text-gray-400 mb-1">Descripción</p>
-                    <p className="font-medium text-sm">{item.descripcion}</p>
-                  </div>
-                  <div className="col-span-1 text-center">
-                    <p className="text-xs text-gray-400 mb-1">Unidad</p>
-                    <p className="text-xs text-gray-600">{item.bienes_servicios?.unidad || '—'}</p>
-                  </div>
-                  <div className="col-span-1 text-right">
-                    <p className="text-xs text-gray-400 mb-1">Cantidad</p>
-                    <p className="font-mono text-xs">{item.cantidad}</p>
-                  </div>
-                  <div className="col-span-1 text-right">
-                    <p className="text-xs text-gray-400 mb-1">Precio unit.</p>
-                    <p className="font-mono text-xs">{fmt(item.precio_unitario)}</p>
-                  </div>
-                  <div className="col-span-1 text-right">
-                    <p className="text-xs text-gray-400 mb-1">Subtotal</p>
-                    <p className="font-mono text-sm font-medium">{fmt(item.cantidad * item.precio_unitario)}</p>
-                  </div>
-                </div>
-
-                {/* Condiciones del ítem */}
-                {condsItem(item.id).length > 0 && (
-                  <div className="mt-2 pl-2 border-l-2 border-amber-100">
-                    {condsItem(item.id).map(c => (
-                      <div key={c.id} className="flex items-center gap-2 mb-1">
-                        <span className={`text-xs px-1.5 py-0.5 rounded ${c.condiciones_precio?.tipo === 'descuento' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
-                          {c.condiciones_precio?.tipo === 'descuento' ? '-' : '+'} {c.condiciones_precio?.abreviatura}
-                        </span>
-                        <span className="text-xs text-gray-500">{c.condiciones_precio?.nombre}</span>
-                        <span className="text-xs text-gray-400">
-                          {c.valor}{c.condiciones_precio?.forma_calculo === 'porcentual' ? '%' : '$'}
-                        </span>
-                        <span className="text-xs font-mono text-gray-600 ml-auto">{fmt(c.monto_calculado)}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Impuestos del ítem */}
-                {impsItem(item.id).length > 0 && (
-                  <div className="mt-2 pl-2 border-l-2 border-blue-100">
-                    {impsItem(item.id).map(imp => (
-                      <div key={imp.id} className="flex items-center gap-2 mb-1">
-                        <span className="text-xs px-1.5 py-0.5 rounded bg-blue-50 text-blue-700">{imp.impuestos?.codigo}</span>
-                        <span className="text-xs text-gray-500">{imp.impuestos?.nombre}</span>
-                        <span className="text-xs text-gray-400">{imp.porcentaje}%</span>
-                        {imp.es_automatico && <span className="text-xs text-gray-400">(auto)</span>}
-                        <span className="text-xs font-mono text-gray-600 ml-auto">{fmt(imp.monto_calculado)}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Estado confirmación */}
-                <div className="mt-2 flex items-center justify-between">
-                  <span className="text-xs text-gray-400">Confirmado: {item.cantidad_confirmada} / {item.cantidad}</span>
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${item.documento_abierto ? 'bg-amber-50 text-amber-700' : 'bg-green-50 text-green-700'}`}>
-                    {item.documento_abierto ? 'Abierto' : 'Cerrado'}
-                  </span>
-                </div>
-              </div>
-            ))}
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100">
+                  <th className="text-left py-2 text-gray-600 font-medium">#</th>
+                  <th className="text-left py-2 text-gray-600 font-medium">Código</th>
+                  <th className="text-left py-2 text-gray-600 font-medium">Descripción</th>
+                  <th className="text-center py-2 text-gray-600 font-medium">Unidad</th>
+                  <th className="text-right py-2 text-gray-600 font-medium">Cantidad</th>
+                  <th className="text-right py-2 text-gray-600 font-medium">Confirmada</th>
+                  <th className="text-right py-2 text-gray-600 font-medium">Precio u.</th>
+                  <th className="text-right py-2 text-gray-600 font-medium">Subtotal</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((item, idx) => (
+                  <tr key={item.id} className="border-b border-gray-50 hover:bg-gray-50">
+                    <td className="py-3 font-semibold text-gray-700">{idx + 1}</td>
+                    <td className="py-3 font-mono text-xs text-gray-600">{item.bienes_servicios?.codigo || '—'}</td>
+                    <td className="py-3 text-gray-700">{item.descripcion}</td>
+                    <td className="py-3 text-center text-gray-600">{item.bienes_servicios?.unidad || '—'}</td>
+                    <td className="py-3 text-right font-mono text-gray-700">{item.cantidad}</td>
+                    <td className="py-3 text-right font-mono text-gray-700">{item.cantidad_confirmada || 0}</td>
+                    <td className="py-3 text-right font-mono text-gray-700">{fmt(item.precio_unitario)}</td>
+                    <td className="py-3 text-right font-mono font-medium text-gray-800">{fmt(item.subtotal)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
 
-        {/* CONDICIONES CABECERA */}
-        {condsCabecera.length > 0 && (
+        {/* CONDICIONES */}
+        {condiciones.length > 0 && (
           <div className="bg-white rounded-xl border border-gray-100 p-6 mb-4">
-            <h2 className="text-sm font-semibold text-gray-600 mb-3 uppercase tracking-wide">Condiciones de precio globales</h2>
-            {condsCabecera.map(c => (
-              <div key={c.id} className="flex items-center gap-3 mb-2 text-sm">
-                <span className={`text-xs px-2 py-0.5 rounded ${c.condiciones_precio?.tipo === 'descuento' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
-                  {c.condiciones_precio?.tipo === 'descuento' ? '-' : '+'} {c.condiciones_precio?.abreviatura}
-                </span>
-                <span className="text-gray-600">{c.condiciones_precio?.nombre}</span>
-                <span className="text-gray-400 text-xs">
-                  {c.valor}{c.condiciones_precio?.forma_calculo === 'porcentual' ? '%' : '$'}
-                </span>
-                <span className="font-mono text-gray-700 ml-auto">{fmt(Math.abs(c.monto_calculado))}</span>
-              </div>
-            ))}
+            <h2 className="text-sm font-semibold text-gray-600 mb-4 uppercase tracking-wide">Condiciones de precio</h2>
+            <div className="space-y-2">
+              {condiciones.map(c => (
+                <div key={c.id} className="flex justify-between text-sm">
+                  <span className="text-gray-700">{c.tipo === 'descuento' ? '−' : '+'} {c.condiciones_precio?.nombre}</span>
+                  <span className="font-mono text-gray-800">{fmt(c.monto_calculado)}</span>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
-        {/* IMPUESTOS CABECERA */}
-        {impsCabecera.length > 0 && (
+        {/* IMPUESTOS */}
+        {impuestos.length > 0 && (
           <div className="bg-white rounded-xl border border-gray-100 p-6 mb-4">
-            <h2 className="text-sm font-semibold text-gray-600 mb-3 uppercase tracking-wide">Impuestos globales</h2>
-            {impsCabecera.map(i => (
-              <div key={i.id} className="flex items-center gap-3 mb-2 text-sm">
-                <span className="text-xs px-2 py-0.5 rounded bg-blue-50 text-blue-700">{i.impuestos?.codigo}</span>
-                <span className="text-gray-600">{i.impuestos?.nombre} · {i.porcentaje}%</span>
-                <span className="font-mono text-gray-700 ml-auto">{fmt(i.monto_calculado)}</span>
-              </div>
-            ))}
+            <h2 className="text-sm font-semibold text-gray-600 mb-4 uppercase tracking-wide">Impuestos</h2>
+            <div className="space-y-2">
+              {impuestos.map(i => (
+                <div key={i.id} className="flex justify-between text-sm">
+                  <span className="text-gray-700">{i.impuestos?.codigo} · {i.impuestos?.nombre}</span>
+                  <span className="font-mono text-gray-800">{fmt(i.monto_calculado)}</span>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
         {/* TOTALES */}
-        <div className="bg-white rounded-xl border border-gray-100 p-6">
+        <div className="bg-white rounded-xl border border-gray-100 p-6 mb-4">
           <div className="flex justify-end">
             <div className="w-72 space-y-2 text-sm">
               <div className="flex justify-between text-gray-600">
-                <span>Total neto ítems</span>
-                <span className="font-mono">{fmt(oc.total_neto)}</span>
+                <span>Subtotal bruto</span>
+                <span className="font-mono">{fmt(totalNeto)}</span>
               </div>
-              {condsCabecera.map(c => (
-                <div key={c.id} className="flex justify-between text-gray-500">
-                  <span>{c.condiciones_precio?.tipo === 'descuento' ? '-' : '+'} {c.condiciones_precio?.nombre}</span>
-                  <span className="font-mono">{fmt(Math.abs(c.monto_calculado))}</span>
+              {totalCondiciones !== 0 && (
+                <div className="flex justify-between text-gray-600">
+                  <span>Condiciones</span>
+                  <span className="font-mono">{fmt(totalCondiciones)}</span>
                 </div>
-              ))}
-              <div className="flex justify-between text-gray-500">
-                <span>Impuestos</span>
-                <span className="font-mono">{fmt(oc.total_impuestos)}</span>
-              </div>
-              {impsCabecera.map(i => (
-                <div key={i.id} className="flex justify-between text-gray-500">
-                  <span>+ {i.impuestos?.nombre}</span>
-                  <span className="font-mono">{fmt(i.monto_calculado)}</span>
+              )}
+              {totalImpuestos !== 0 && (
+                <div className="flex justify-between text-gray-600">
+                  <span>Impuestos</span>
+                  <span className="font-mono">{fmt(totalImpuestos)}</span>
                 </div>
-              ))}
-              <div className="flex justify-between font-semibold text-gray-800 border-t border-gray-100 pt-2 text-base">
+              )}
+              <div className="border-t border-gray-100 pt-2 flex justify-between font-semibold text-gray-800 text-base">
                 <span>Total</span>
-                <span className="font-mono">{fmt(oc.total)}</span>
+                <span className="font-mono">{fmt(totalFinal)}</span>
               </div>
             </div>
           </div>
+        </div>
+
+        {/* CONFIRMACIONES */}
+        <div className="bg-white rounded-xl border border-gray-100 p-6 mb-4">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-sm font-semibold text-gray-600 uppercase tracking-wide">Confirmaciones de compra</h2>
+            <div className="flex gap-2">
+              {confirmaciones.length > 0 && (
+                <button onClick={() => router.push(`/compras/${id}/confirmaciones`)} className="text-xs bg-gray-600 text-white px-3 py-1.5 rounded hover:bg-gray-700">
+                  Ver todas
+                </button>
+              )}
+              {oc.estado === 'emitida' && oc.documento_abierto && (
+                <button onClick={() => router.push(`/compras/${id}/confirmar`)} className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded hover:bg-blue-700">
+                  + Nueva confirmación
+                </button>
+              )}
+            </div>
+          </div>
+
+          {confirmaciones.length === 0 ? (
+            <p className="text-sm text-gray-400">Sin confirmaciones</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-100">
+                    <th className="text-left py-2 text-gray-600 font-medium">Confirmación</th>
+                    <th className="text-left py-2 text-gray-600 font-medium">Fecha</th>
+                    <th className="text-right py-2 text-gray-600 font-medium">Total neto</th>
+                    <th className="text-center py-2 text-gray-600 font-medium">Estado</th>
+                    <th className="text-center py-2"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {confirmaciones.map(conf => (
+                    <tr key={conf.id} className="border-b border-gray-50 hover:bg-gray-50">
+                      <td className="py-3 font-mono text-blue-600 font-medium">{conf.numero_confirmacion}</td>
+                      <td className="py-3 text-gray-700">{new Date(conf.fecha_confirmacion).toLocaleDateString('es-CL')}</td>
+                      <td className="py-3 text-right font-mono text-gray-800">{fmt(conf.total_neto)}</td>
+                      <td className="py-3 text-center">
+                        <span className={`text-xs px-2 py-1 rounded font-medium ${
+                          conf.estado === 'pending_factura' ? 'bg-yellow-50 text-yellow-700' :
+                          conf.estado === 'facturada' ? 'bg-green-50 text-green-700' :
+                          'bg-red-50 text-red-700'
+                        }`}>
+                          {conf.estado === 'pending_factura' ? 'Pendiente factura' :
+                           conf.estado === 'facturada' ? 'Facturada' : 'Anulada'}
+                        </span>
+                      </td>
+                      <td className="py-3 text-center">
+                        <button onClick={() => router.push(`/compras/${id}/confirmaciones/${conf.id}`)} className="text-blue-600 hover:text-blue-800 text-xs font-medium">
+                          Ver →
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {/* ACCIONES */}
+        <div className="flex justify-end gap-3">
+          {oc.estado === 'borrador' && oc.documento_abierto && (
+            <>
+              <button onClick={() => router.push(`/compras/${id}/editar`)} className="px-4 py-2 text-sm border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50">
+                Editar
+              </button>
+              <button onClick={emitirOC} disabled={emitiendo} className="px-6 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
+                {emitiendo ? 'Emitiendo...' : 'Emitir OC'}
+              </button>
+              <button onClick={anularOC} disabled={anulando} className="px-6 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50">
+                {anulando ? 'Anulando...' : 'Anular'}
+              </button>
+            </>
+          )}
+          {(oc.estado === 'emitida' || oc.estado === 'anulada') && (
+            <span className="text-sm text-gray-500 px-4 py-2">OC {oc.estado}</span>
+          )}
         </div>
 
       </div>

@@ -5,72 +5,52 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useEmpresa } from '@/app/context/empresa'
 
-interface Entidad { id: string; razon_social: string; rut: string }
 interface BienServicio {
   id: string; codigo: string; descripcion: string; clasificacion: string
   unidad: string; moneda: string; afecto_iva_compra: boolean
   esquema_tributario_compra_id: string | null
 }
 interface CondicionPago { id: string; nombre: string }
+interface Entidad { id: string; razon_social: string; rut: string }
 interface Impuesto { id: string; codigo: string; nombre: string; porcentaje: number; tipo_calculo: string; flujo: string; cuenta_id: string | null }
 interface CondicionPrecio { id: string; nombre: string; abreviatura: string; tipo: string; forma_calculo: string; nivel: string; requiere_cuenta: boolean; cuenta_id: string | null }
 interface EsquemaImpuesto { impuesto_id: string; impuestos: Impuesto }
 
 interface ItemImpuesto {
-  impuesto_id: string
-  codigo: string
-  nombre: string
-  porcentaje: number
-  monto_calculado: number
-  es_automatico: boolean
-  cuenta_id: string | null
+  impuesto_id: string; codigo: string; nombre: string
+  porcentaje: number; monto_calculado: number
+  es_automatico: boolean; cuenta_id: string | null
 }
 
 interface ItemCondicion {
-  condicion_precio_id: string
-  nombre: string
-  abreviatura: string
-  tipo: string
-  forma_calculo: string
-  valor: number
-  monto_calculado: number
-  requiere_cuenta: boolean
-  cuenta_id: string | null
+  condicion_precio_id: string; nombre: string; abreviatura: string
+  tipo: string; forma_calculo: string; valor: number
+  monto_calculado: number; requiere_cuenta: boolean; cuenta_id: string | null
 }
 
 interface ItemForm {
-  bien_servicio_id: string
-  descripcion: string
-  cantidad: number
-  precio_unitario: number
+  id?: string
+  bien_servicio_id: string; descripcion: string
+  cantidad: number; precio_unitario: number
   subtotal_bruto: number
-  bien?: BienServicio
-  impuestos: ItemImpuesto[]
-  condiciones: ItemCondicion[]
-  cuenta_id: string | null
+  bien?: BienServicio; impuestos: ItemImpuesto[]
+  condiciones: ItemCondicion[]; cuenta_id: string | null
 }
 
 interface CondicionCabecera {
-  condicion_precio_id: string
-  nombre: string
-  abreviatura: string
-  tipo: string
-  forma_calculo: string
-  valor: number
-  monto_calculado: number
+  id?: string; condicion_precio_id: string; nombre: string
+  abreviatura: string; tipo: string; forma_calculo: string
+  valor: number; monto_calculado: number
 }
 
 interface ImpuestoCabecera {
-  impuesto_id: string
-  codigo: string
-  nombre: string
-  porcentaje: number
-  monto_calculado: number
+  id?: string; impuesto_id: string; codigo: string
+  nombre: string; porcentaje: number; monto_calculado: number
 }
 
 export default function NuevaOCPage() {
-  const { empresaActual } = useEmpresa()
   const router = useRouter()
+  const { empresaActual } = useEmpresa()
 
   const [proveedores, setProveedores] = useState<Entidad[]>([])
   const [bienes, setBienes] = useState<BienServicio[]>([])
@@ -80,6 +60,7 @@ export default function NuevaOCPage() {
   const [esquemaImpuestos, setEsquemaImpuestos] = useState<Record<string, EsquemaImpuesto[]>>({})
   const [operacionC1G, setOperacionC1G] = useState<string | null>(null)
   const [guardando, setGuardando] = useState(false)
+  const [loading, setLoading] = useState(true)
 
   const [cabecera, setCabecera] = useState({
     proveedor_id: '', fecha: new Date().toISOString().split('T')[0],
@@ -92,9 +73,10 @@ export default function NuevaOCPage() {
   const [condSelCab, setCondSelCab] = useState('')
   const [impSelCab, setImpSelCab] = useState('')
 
-  useEffect(() => { cargarListas() }, [])
+  useEffect(() => { cargarTodo() }, [])
 
-  async function cargarListas() {
+  async function cargarTodo() {
+    setLoading(true)
     const [provs, bs, cps, imps, conds] = await Promise.all([
       supabase.from('entidades').select('id, razon_social, rut').eq('tipo_proveedor', true).eq('activo', true).order('razon_social'),
       supabase.from('bienes_servicios').select('id, codigo, descripcion, clasificacion, unidad, moneda, afecto_iva_compra, esquema_tributario_compra_id').eq('activo', true).order('descripcion'),
@@ -102,11 +84,13 @@ export default function NuevaOCPage() {
       supabase.from('impuestos').select('id, codigo, nombre, porcentaje, tipo_calculo, flujo, cuenta_id').eq('activo', true).eq('flujo', 'compra').order('codigo'),
       supabase.from('condiciones_precio').select('id, nombre, abreviatura, tipo, forma_calculo, nivel, requiere_cuenta, cuenta_id').eq('activo', true).order('nombre'),
     ])
+
     if (provs.data) setProveedores(provs.data)
     if (bs.data) setBienes(bs.data)
     if (cps.data) setCondicionesPago(cps.data)
     if (imps.data) setImpuestosDisp(imps.data)
     if (conds.data) setCondPrecioDisp(conds.data)
+    setLoading(false)
   }
 
   async function cargarEsquemaImpuestos(esquemaId: string): Promise<EsquemaImpuesto[]> {
@@ -123,29 +107,13 @@ export default function NuevaOCPage() {
   async function resolverCuentaItem(bien: BienServicio): Promise<string | null> {
     let opId = operacionC1G
     if (!opId) {
-      const { data: op } = await supabase
-        .from('operaciones_contables')
-        .select('id')
-        .eq('codigo', 'C1G')
-        .single()
+      const { data: op } = await supabase.from('operaciones_contables').select('id').eq('codigo', 'C1G').single()
       if (op) { setOperacionC1G(op.id); opId = op.id }
     }
     if (!opId) return null
-
-    const { data: clas } = await supabase
-      .from('clasificaciones')
-      .select('id')
-      .eq('nombre', bien.clasificacion)
-      .single()
+    const { data: clas } = await supabase.from('clasificaciones').select('id').eq('nombre', bien.clasificacion).single()
     if (!clas) return null
-
-    const { data: cc } = await supabase
-      .from('clasificacion_cuentas')
-      .select('cuenta_id')
-      .eq('clasificacion_id', clas.id)
-      .eq('operacion_id', opId)
-      .single()
-
+    const { data: cc } = await supabase.from('clasificacion_cuentas').select('cuenta_id').eq('clasificacion_id', clas.id).eq('operacion_id', opId).single()
     return cc?.cuenta_id || null
   }
 
@@ -153,71 +121,39 @@ export default function NuevaOCPage() {
     if (!bienSeleccionado) return alert('Selecciona un bien o servicio')
     const bien = bienes.find(b => b.id === bienSeleccionado)
     if (!bien) return
-
     const cuentaItem = await resolverCuentaItem(bien)
-
     let impuestosAuto: ItemImpuesto[] = []
     if (bien.esquema_tributario_compra_id) {
       const esqImps = await cargarEsquemaImpuestos(bien.esquema_tributario_compra_id)
-      impuestosAuto = esqImps
-        .filter(ei => ei.impuestos?.flujo === 'compra')
-        .map(ei => ({
-          impuesto_id: ei.impuesto_id,
-          codigo: ei.impuestos.codigo,
-          nombre: ei.impuestos.nombre,
-          porcentaje: ei.impuestos.porcentaje,
-          monto_calculado: 0,
-          es_automatico: true,
-          cuenta_id: ei.impuestos.cuenta_id || null
-        }))
+      impuestosAuto = esqImps.filter(ei => ei.impuestos?.flujo === 'compra').map(ei => ({
+        impuesto_id: ei.impuesto_id, codigo: ei.impuestos.codigo,
+        nombre: ei.impuestos.nombre, porcentaje: ei.impuestos.porcentaje,
+        monto_calculado: 0, es_automatico: true, cuenta_id: ei.impuestos.cuenta_id || null
+      }))
     }
-
     setItems([...items, {
-      bien_servicio_id: bien.id,
-      descripcion: bien.descripcion,
-      cantidad: 1,
-      precio_unitario: 0,
-      subtotal_bruto: 0,
-      bien,
-      impuestos: impuestosAuto,
-      condiciones: [],
-      cuenta_id: cuentaItem
+      bien_servicio_id: bien.id, descripcion: bien.descripcion,
+      cantidad: 1, precio_unitario: 0, subtotal_bruto: 0,
+      bien, impuestos: impuestosAuto, condiciones: [], cuenta_id: cuentaItem
     }])
     setBienSeleccionado('')
   }
 
-  /** 
-   * CÁLCULO CORRECTO:
-   * 1. subtotal_bruto = cantidad × precio_unitario (SIN descuentos)
-   * 2. condiciones se aplican al bruto
-   * 3. base_imponible = bruto + condiciones
-   * 4. impuestos se calculan sobre la base_imponible
-   */
   function calcularItem(item: ItemForm): ItemForm {
-    // PASO 1: Calcular bruto (sin descuentos)
     const subtotal_bruto = item.cantidad * item.precio_unitario
-
-    // PASO 2: Calcular condiciones (descuentos/recargos) y la base imponible
     let base_imponible = subtotal_bruto
     const condiciones = item.condiciones.map(c => {
       let monto = 0
       if (c.forma_calculo === 'porcentual') monto = subtotal_bruto * c.valor / 100
       else if (c.forma_calculo === 'monto_fijo') monto = c.valor
       else if (c.forma_calculo === 'monto_unidad') monto = c.valor * item.cantidad
-      
-      // Descuentos restan, recargos suman
       if (c.tipo === 'descuento') base_imponible -= monto
       else base_imponible += monto
-      
       return { ...c, monto_calculado: monto }
     })
-
-    // PASO 3: Calcular impuestos sobre la base_imponible
     const impuestos = item.impuestos.map(imp => ({
-      ...imp,
-      monto_calculado: Math.round(base_imponible * imp.porcentaje / 100)
+      ...imp, monto_calculado: Math.round(base_imponible * imp.porcentaje / 100)
     }))
-
     return { ...item, subtotal_bruto, condiciones, impuestos }
   }
 
@@ -236,8 +172,7 @@ export default function NuevaOCPage() {
       ...nuevos[idx],
       impuestos: [...nuevos[idx].impuestos, {
         impuesto_id: imp.id, codigo: imp.codigo, nombre: imp.nombre,
-        porcentaje: imp.porcentaje, monto_calculado: 0, es_automatico: false,
-        cuenta_id: imp.cuenta_id || null
+        porcentaje: imp.porcentaje, monto_calculado: 0, es_automatico: false, cuenta_id: imp.cuenta_id || null
       }]
     })
     setItems(nuevos)
@@ -260,8 +195,7 @@ export default function NuevaOCPage() {
       condiciones: [...nuevos[idx].condiciones, {
         condicion_precio_id: cond.id, nombre: cond.nombre, abreviatura: cond.abreviatura,
         tipo: cond.tipo, forma_calculo: cond.forma_calculo, valor: 0, monto_calculado: 0,
-        requiere_cuenta: cond.requiere_cuenta ?? false,
-        cuenta_id: cuentaCond || null
+        requiere_cuenta: cond.requiere_cuenta ?? false, cuenta_id: cuentaCond || null
       }]
     })
     setItems(nuevos)
@@ -282,7 +216,9 @@ export default function NuevaOCPage() {
     setItems(nuevos)
   }
 
-  function eliminarItem(idx: number) { setItems(items.filter((_, i) => i !== idx)) }
+  function eliminarItem(idx: number) {
+    setItems(items.filter((_, i) => i !== idx))
+  }
 
   function agregarCondCabecera() {
     if (!condSelCab) return
@@ -300,8 +236,7 @@ export default function NuevaOCPage() {
     setCondsCabecera(condsCabecera.map(c => {
       if (c.condicion_precio_id !== condId) return c
       let monto = 0
-      // Las condiciones de cabecera se aplican sobre el total neto de ítems
-      if (c.forma_calculo === 'porcentual') monto = totalNetoItems * valor / 100
+      if (c.forma_calculo === 'porcentual') monto = totalNeto * valor / 100
       else monto = valor
       return { ...c, valor, monto_calculado: c.tipo === 'descuento' ? -monto : monto }
     }))
@@ -316,8 +251,7 @@ export default function NuevaOCPage() {
     const imp = impuestosDisp.find(i => i.id === impSelCab)
     if (!imp) return
     if (impsCabecera.some(i => i.impuesto_id === impSelCab)) return alert('Ya está agregado')
-    // Impuesto de cabecera se calcula sobre el total neto DESPUÉS de condiciones
-    const monto = Math.round(totalNetoConCondiciones * imp.porcentaje / 100)
+    const monto = Math.round(totalNeto * imp.porcentaje / 100)
     setImpsCabecera([...impsCabecera, {
       impuesto_id: imp.id, codigo: imp.codigo, nombre: imp.nombre,
       porcentaje: imp.porcentaje, monto_calculado: monto
@@ -329,23 +263,21 @@ export default function NuevaOCPage() {
     setImpsCabecera(impsCabecera.filter(i => i.impuesto_id !== impId))
   }
 
-  // CÁLCULOS DE TOTALES
-  const totalNetoItems = items.reduce((sum, i) => sum + i.subtotal_bruto, 0)
-  const totalCondicionesItems = items.reduce((sum, i) => sum + i.condiciones.reduce((s, c) => s + (c.tipo === 'descuento' ? -c.monto_calculado : c.monto_calculado), 0), 0)
-  const totalNetoConCondiciones = totalNetoItems + totalCondicionesItems
-  const totalCondsCab = condsCabecera.reduce((sum, c) => sum + c.monto_calculado, 0)
-  const totalNeto = totalNetoConCondiciones + totalCondsCab
-  
+  const totalNeto = items.reduce((sum, i) => sum + i.subtotal_bruto, 0)
+  const totalCondiciones = condsCabecera.reduce((sum, c) => sum + c.monto_calculado, 0)
   const totalImpItems = items.reduce((sum, i) => sum + i.impuestos.reduce((s, imp) => s + imp.monto_calculado, 0), 0)
   const totalImpCab = impsCabecera.reduce((sum, i) => sum + i.monto_calculado, 0)
   const totalImpuestos = totalImpItems + totalImpCab
-  
-  const totalFinal = totalNeto + totalImpuestos
-
+  const totalFinal = totalNeto + totalCondiciones + totalImpuestos
   const fmt = (n: number) => new Intl.NumberFormat('es-CL').format(Math.round(n))
 
-  async function generarNumero() {
-    const { data } = await supabase.from('ordenes_compra').select('numero').eq('empresa_id', empresaActual!.id).order('numero', { ascending: false }).limit(1)
+  async function generarNumeroOC() {
+    const { data } = await supabase
+      .from('ordenes_compra')
+      .select('numero')
+      .order('numero', { ascending: false })
+      .limit(1)
+
     if (data && data.length > 0) {
       const ultimo = parseInt(data[0].numero.split('-')[1] || '0')
       return `OC-${String(ultimo + 1).padStart(6, '0')}`
@@ -360,85 +292,107 @@ export default function NuevaOCPage() {
 
     const { data: { user } } = await supabase.auth.getUser()
     const ahora = new Date().toISOString()
-    const numero = await generarNumero()
 
-    const { data: oc, error } = await supabase.from('ordenes_compra').insert([{
-      empresa_id: empresaActual!.id, numero,
-      proveedor_id: cabecera.proveedor_id, fecha: cabecera.fecha,
+    const { data: ocData, error: ocError } = await supabase.from('ordenes_compra').insert([{
+      numero: await generarNumeroOC(),
+      empresa_id: empresaActual!.id,
+      proveedor_id: cabecera.proveedor_id,
+      fecha: cabecera.fecha,
       condicion_pago_id: cabecera.condicion_pago_id || null,
-      moneda: cabecera.moneda, observaciones: cabecera.observaciones || null,
-      total_neto: totalNeto, total_impuestos: totalImpuestos, total: totalFinal,
-      estado: 'borrador', documento_abierto: true,
-      created_by: user?.email, updated_by: user?.email, updated_at: ahora
+      moneda: cabecera.moneda,
+      observaciones: cabecera.observaciones || null,
+      estado: 'borrador',
+      documento_abierto: true,
+      total_neto: totalNeto,
+      total_impuestos: totalImpuestos,
+      total: totalFinal,
+      created_by: user?.email,
+      updated_by: user?.email,
+      updated_at: ahora
     }]).select()
 
-    if (error || !oc) { alert('Error: ' + error?.message); setGuardando(false); return }
-    const ocId = oc[0].id
+    if (ocError || !ocData) { alert('Error: ' + ocError?.message); setGuardando(false); return }
+
+    const oc_id = ocData[0].id
 
     for (const item of items) {
-      // ✅ IMPORTANTE: Guardar BRUTO, no neto
-      const { data: itemData, error: itemError } = await supabase.from('ordenes_compra_items').insert([{
-        orden_compra_id: ocId, bien_servicio_id: item.bien_servicio_id,
-        descripcion: item.descripcion, cantidad: item.cantidad,
-        precio_unitario: item.precio_unitario, 
-        subtotal: item.subtotal_bruto,  // ✅ AQUÍ: subtotal_bruto, NO neto
-        cantidad_confirmada: 0, documento_abierto: true,
+      const { data: itemData } = await supabase.from('ordenes_compra_items').insert([{
+        orden_compra_id: oc_id,
+        bien_servicio_id: item.bien_servicio_id,
+        descripcion: item.descripcion,
+        cantidad: item.cantidad,
+        precio_unitario: item.precio_unitario,
+        subtotal: item.subtotal_bruto,
+        cantidad_confirmada: 0,
+        documento_abierto: true,
         cuenta_id: item.cuenta_id,
-        created_by: user?.email, updated_by: user?.email, updated_at: ahora
+        created_by: user?.email,
+        updated_by: user?.email,
+        updated_at: ahora
       }]).select()
 
-      if (itemError || !itemData) continue
-      const itemId = itemData[0].id
-
-      // Guardar impuestos del ítem
-      if (item.impuestos.length > 0) {
-        await supabase.from('oc_impuestos').insert(item.impuestos.map(imp => ({
-          orden_compra_id: ocId, item_id: itemId,
-          impuesto_id: imp.impuesto_id, nivel: 'item',
-          porcentaje: imp.porcentaje, monto_calculado: imp.monto_calculado,
-          es_automatico: imp.es_automatico,
-          cuenta_id: imp.cuenta_id,
-          created_by: user?.email
-        })))
-      }
-
-      // Guardar condiciones del ítem
-      if (item.condiciones.length > 0) {
-        await supabase.from('oc_condiciones').insert(item.condiciones.map(c => ({
-          orden_compra_id: ocId, item_id: itemId,
-          condicion_precio_id: c.condicion_precio_id, nivel: 'item',
-          valor: c.valor, monto_calculado: c.monto_calculado,
-          cuenta_id: c.cuenta_id,
-          created_by: user?.email
-        })))
+      if (itemData && itemData[0]) {
+        const itemId = itemData[0].id
+        if (item.impuestos.length > 0) {
+          await supabase.from('oc_impuestos').insert(item.impuestos.map(imp => ({
+            orden_compra_id: oc_id,
+            item_id: itemId,
+            impuesto_id: imp.impuesto_id,
+            nivel: 'item',
+            porcentaje: imp.porcentaje,
+            monto_calculado: imp.monto_calculado,
+            es_automatico: imp.es_automatico,
+            cuenta_id: imp.cuenta_id,
+            created_by: user?.email
+          })))
+        }
+        if (item.condiciones.length > 0) {
+          await supabase.from('oc_condiciones').insert(item.condiciones.map(c => ({
+            orden_compra_id: oc_id,
+            item_id: itemId,
+            condicion_precio_id: c.condicion_precio_id,
+            nivel: 'item',
+            valor: c.valor,
+            monto_calculado: c.monto_calculado,
+            cuenta_id: c.cuenta_id,
+            created_by: user?.email
+          })))
+        }
       }
     }
 
-    // Guardar condiciones de cabecera
     if (condsCabecera.length > 0) {
       await supabase.from('oc_condiciones').insert(condsCabecera.map(c => ({
-        orden_compra_id: ocId, item_id: null,
-        condicion_precio_id: c.condicion_precio_id, nivel: 'cabecera',
-        valor: c.valor, monto_calculado: c.monto_calculado,
+        orden_compra_id: oc_id,
+        item_id: null,
+        condicion_precio_id: c.condicion_precio_id,
+        nivel: 'cabecera',
+        valor: c.valor,
+        monto_calculado: c.monto_calculado,
         cuenta_id: null,
         created_by: user?.email
       })))
     }
 
-    // Guardar impuestos de cabecera
     if (impsCabecera.length > 0) {
       await supabase.from('oc_impuestos').insert(impsCabecera.map(i => ({
-        orden_compra_id: ocId, item_id: null,
-        impuesto_id: i.impuesto_id, nivel: 'cabecera',
-        porcentaje: i.porcentaje, monto_calculado: i.monto_calculado,
+        orden_compra_id: oc_id,
+        item_id: null,
+        impuesto_id: i.impuesto_id,
+        nivel: 'cabecera',
+        porcentaje: i.porcentaje,
+        monto_calculado: i.monto_calculado,
         es_automatico: false,
         cuenta_id: impuestosDisp.find(imp => imp.id === i.impuesto_id)?.cuenta_id || null,
         created_by: user?.email
       })))
     }
 
-    router.push(`/compras/${ocId}`)
+    setGuardando(false)
+    router.push(`/compras/${oc_id}`)
   }
+
+  if (loading) return <div className="min-h-screen bg-gray-50 flex items-center justify-center text-gray-400">Cargando...</div>
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -485,7 +439,7 @@ export default function NuevaOCPage() {
           </div>
         </div>
 
-        {/* ITEMS */}
+        {/* ÍTEMS */}
         <div className="bg-white rounded-xl border border-gray-100 p-6 mb-4">
           <h2 className="text-sm font-semibold text-gray-600 mb-4 uppercase tracking-wide">Ítems</h2>
           <div className="flex gap-3 mb-4">
@@ -497,13 +451,16 @@ export default function NuevaOCPage() {
           </div>
 
           {items.length === 0 ? (
-            <p className="text-sm text-gray-400 text-center py-4">No hay ítems agregados</p>
+            <p className="text-sm text-gray-400 text-center py-4">No hay ítems</p>
           ) : (
             <div className="space-y-4">
               {items.map((item, idx) => (
                 <div key={idx} className="border border-gray-100 rounded-lg p-4">
-                  {/* Fila principal del ítem */}
                   <div className="grid grid-cols-12 gap-2 items-center mb-3">
+                    <div className="col-span-1">
+                      <label className="text-xs text-gray-400 block mb-1">Ítem #</label>
+                      <p className="text-sm font-semibold text-gray-700">{idx + 1}</p>
+                    </div>
                     <div className="col-span-4">
                       <label className="text-xs text-gray-400 block mb-1">Descripción</label>
                       <input value={item.descripcion} onChange={e => actualizarItem(idx, 'descripcion', e.target.value)} className="w-full border border-gray-200 rounded px-2 py-1 text-xs" />
@@ -639,57 +596,30 @@ export default function NuevaOCPage() {
           ))}
         </div>
 
-        {/* TOTALES DESGLOSADOS */}
+        {/* TOTALES */}
         <div className="bg-white rounded-xl border border-gray-100 p-6 mb-6">
           <div className="flex justify-end">
             <div className="w-72 space-y-2 text-sm">
-              <div className="flex justify-between text-gray-600 font-medium">
+              <div className="flex justify-between text-gray-600">
                 <span>Total bruto ítems</span>
-                <span className="font-mono">{fmt(totalNetoItems)}</span>
-              </div>
-              {items.some(i => i.condiciones.length > 0) && (
-                <>
-                  <div className="text-xs border-t border-gray-100 pt-1 mt-1"></div>
-                  {items.map(item => item.condiciones.map(c => (
-                    <div key={c.condicion_precio_id} className="flex justify-between text-gray-500 text-xs">
-                      <span className="ml-2">{c.tipo === 'descuento' ? '-' : '+'} {c.nombre}</span>
-                      <span className="font-mono">{fmt(c.monto_calculado)}</span>
-                    </div>
-                  )))}
-                </>
-              )}
-              {condsCabecera.length > 0 && (
-                <>
-                  <div className="text-xs border-t border-gray-100 pt-1 mt-1"></div>
-                  {condsCabecera.map(c => (
-                    <div key={c.condicion_precio_id} className="flex justify-between text-gray-500">
-                      <span>{c.tipo === 'descuento' ? '-' : '+'} {c.nombre}</span>
-                      <span className="font-mono text-xs">{fmt(Math.abs(c.monto_calculado))}</span>
-                    </div>
-                  ))}
-                </>
-              )}
-              <div className="flex justify-between text-gray-600 border-t border-gray-100 pt-2 font-medium">
-                <span>Neto</span>
                 <span className="font-mono">{fmt(totalNeto)}</span>
               </div>
-              {(totalImpItems > 0 || totalImpCab > 0) && (
-                <>
-                  <div className="text-xs border-t border-gray-100 pt-1 mt-1"></div>
-                  {items.map(item => item.impuestos.map(imp => (
-                    <div key={imp.impuesto_id} className="flex justify-between text-gray-500 text-xs">
-                      <span className="ml-2">+ {imp.nombre}</span>
-                      <span className="font-mono">{fmt(imp.monto_calculado)}</span>
-                    </div>
-                  )))}
-                  {impsCabecera.map(i => (
-                    <div key={i.impuesto_id} className="flex justify-between text-gray-500 text-xs">
-                      <span>+ {i.nombre}</span>
-                      <span className="font-mono">{fmt(i.monto_calculado)}</span>
-                    </div>
-                  ))}
-                </>
-              )}
+              {condsCabecera.map(c => (
+                <div key={c.condicion_precio_id} className="flex justify-between text-gray-500">
+                  <span>{c.tipo === 'descuento' ? '-' : '+'} {c.nombre}</span>
+                  <span className="font-mono">{fmt(Math.abs(c.monto_calculado))}</span>
+                </div>
+              ))}
+              <div className="flex justify-between text-gray-500">
+                <span>Impuestos ítems</span>
+                <span className="font-mono">{fmt(totalImpItems)}</span>
+              </div>
+              {impsCabecera.map(i => (
+                <div key={i.impuesto_id} className="flex justify-between text-gray-500">
+                  <span>+ {i.nombre}</span>
+                  <span className="font-mono">{fmt(i.monto_calculado)}</span>
+                </div>
+              ))}
               <div className="flex justify-between font-semibold text-gray-800 border-t border-gray-100 pt-2 text-base">
                 <span>Total</span>
                 <span className="font-mono">{fmt(totalFinal)}</span>
