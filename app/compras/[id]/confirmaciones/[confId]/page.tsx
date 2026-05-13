@@ -67,7 +67,8 @@ export default function DetalleConfirmacionPage() {
     ])
 
     if (confData.data) setConfirmacion(confData.data as Confirmacion)
-    if (itemsData.data) setItems(itemsData.data as ItemConfirmacion[])
+    if (itemsData.data) setItems(itemsData.data as any)
+        
 
     setLoading(false)
   }
