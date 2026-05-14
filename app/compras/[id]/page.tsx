@@ -48,7 +48,7 @@ export default function DetalleOCPage() {
       supabase.from('ordenes_compra').select('*, entidades(razon_social, rut)').eq('id', id).single(),
       supabase.from('ordenes_compra_items').select('*, bienes_servicios(codigo, unidad)').eq('orden_compra_id', id).order('numero_item'),
       supabase.from('oc_condiciones').select('*, condiciones_precio(nombre, abreviatura, tipo)').eq('orden_compra_id', id),
-      supabase.from('oc_impuestos').select('*, impuestos(codigo, nombre)').eq('orden_compra_id', id),
+      supabase.from('oc_impuestos').select('*, impuestos(codigo, nombre, tipo, porcentaje)').eq('orden_compra_id', id),
       supabase.from('oc_confirmaciones').select('*').eq('orden_compra_id', id).order('fecha_confirmacion', { ascending: false })
     ])
 
@@ -58,8 +58,6 @@ export default function DetalleOCPage() {
 
     if (itemsData.data) {
       setItems(itemsData.data)
-
-      // Calcular montos confirmados activos para Servicio Global
       const itemsSG = itemsData.data.filter((i: any) => i.bienes_servicios?.unidad === 'Servicio Global')
       const montos: Record<string, number> = {}
       for (const item of itemsSG) {
@@ -90,10 +88,16 @@ export default function DetalleOCPage() {
 
   const fmt = (n: number) => new Intl.NumberFormat('es-CL').format(Math.round(n))
 
-  const totalNeto = items.reduce((sum, i) => sum + i.subtotal, 0)
+  const totalBruto = items.reduce((sum, i) => sum + i.subtotal, 0)
   const totalCondiciones = condiciones.reduce((sum, c) => sum + c.monto_calculado, 0)
-  const totalImpuestos = impuestos.reduce((sum, i) => sum + i.monto_calculado, 0)
-  const totalFinal = totalNeto + totalCondiciones + totalImpuestos
+  const totalNeto = totalBruto + totalCondiciones
+
+  // Separar IVA de imp. adicionales
+  const impuestosIVA = impuestos.filter(i => i.impuestos?.tipo === 'iva')
+  const impuestosAdicionales = impuestos.filter(i => i.impuestos?.tipo !== 'iva')
+  const totalIVA = impuestosIVA.reduce((sum, i) => sum + i.monto_calculado, 0)
+  const totalAdicionales = impuestosAdicionales.reduce((sum, i) => sum + i.monto_calculado, 0)
+  const totalFinal = totalNeto + totalIVA + totalAdicionales
 
   async function emitirOC() {
     if (!window.confirm('¿Emitir esta OC? No podrá ser editada nuevamente.')) return
@@ -239,7 +243,9 @@ export default function DetalleOCPage() {
             <div className="space-y-2">
               {impuestos.map(i => (
                 <div key={i.id} className="flex justify-between text-sm">
-                  <span className="text-gray-700">{i.impuestos?.codigo} · {i.impuestos?.nombre}</span>
+                  <span className={`${i.impuestos?.tipo === 'iva' ? 'text-blue-700' : 'text-orange-700'}`}>
+                    {i.impuestos?.codigo} · {i.impuestos?.nombre} · {i.porcentaje}%
+                  </span>
                   <span className="font-mono text-gray-800">{fmt(i.monto_calculado)}</span>
                 </div>
               ))}
@@ -253,7 +259,7 @@ export default function DetalleOCPage() {
             <div className="w-72 space-y-2 text-sm">
               <div className="flex justify-between text-gray-600">
                 <span>Subtotal bruto</span>
-                <span className="font-mono">{fmt(totalNeto)}</span>
+                <span className="font-mono">{fmt(totalBruto)}</span>
               </div>
               {totalCondiciones !== 0 && (
                 <div className="flex justify-between text-gray-600">
@@ -261,12 +267,22 @@ export default function DetalleOCPage() {
                   <span className="font-mono">{fmt(totalCondiciones)}</span>
                 </div>
               )}
-              {totalImpuestos !== 0 && (
-                <div className="flex justify-between text-gray-600">
-                  <span>Impuestos</span>
-                  <span className="font-mono">{fmt(totalImpuestos)}</span>
+              <div className="flex justify-between text-gray-700 font-medium border-t border-gray-100 pt-2">
+                <span>Total neto</span>
+                <span className="font-mono">{fmt(totalNeto)}</span>
+              </div>
+              {impuestosIVA.map(i => (
+                <div key={i.id} className="flex justify-between text-blue-600">
+                  <span>+ IVA {i.porcentaje}%</span>
+                  <span className="font-mono">{fmt(i.monto_calculado)}</span>
                 </div>
-              )}
+              ))}
+              {impuestosAdicionales.map(i => (
+                <div key={i.id} className="flex justify-between text-orange-600">
+                  <span>+ {i.impuestos?.nombre} {i.porcentaje}%</span>
+                  <span className="font-mono">{fmt(i.monto_calculado)}</span>
+                </div>
+              ))}
               <div className="border-t border-gray-100 pt-2 flex justify-between font-semibold text-gray-800 text-base">
                 <span>Total</span>
                 <span className="font-mono">{fmt(totalFinal)}</span>

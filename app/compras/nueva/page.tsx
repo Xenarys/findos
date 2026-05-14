@@ -12,14 +12,18 @@ interface BienServicio {
 }
 interface CondicionPago { id: string; nombre: string }
 interface Entidad { id: string; razon_social: string; rut: string }
-interface Impuesto { id: string; codigo: string; nombre: string; porcentaje: number; tipo_calculo: string; flujo: string; cuenta_id: string | null }
+interface Impuesto {
+  id: string; codigo: string; nombre: string; porcentaje: number
+  tipo_calculo: string; tipo: string; flujo: string; cuenta_id: string | null
+  fecha_desde: string | null; fecha_hasta: string | null
+}
 interface CondicionPrecio { id: string; nombre: string; abreviatura: string; tipo: string; forma_calculo: string; nivel: string; requiere_cuenta: boolean; cuenta_id: string | null }
-interface EsquemaImpuesto { impuesto_id: string; impuestos: Impuesto }
 
 interface ItemImpuesto {
   impuesto_id: string; codigo: string; nombre: string
   porcentaje: number; monto_calculado: number
   es_automatico: boolean; cuenta_id: string | null
+  tipo: string
 }
 
 interface ItemCondicion {
@@ -57,7 +61,6 @@ export default function NuevaOCPage() {
   const [condicionesPago, setCondicionesPago] = useState<CondicionPago[]>([])
   const [impuestosDisp, setImpuestosDisp] = useState<Impuesto[]>([])
   const [condPrecioDisp, setCondPrecioDisp] = useState<CondicionPrecio[]>([])
-  const [esquemaImpuestos, setEsquemaImpuestos] = useState<Record<string, EsquemaImpuesto[]>>({})
   const [operacionC1G, setOperacionC1G] = useState<string | null>(null)
   const [guardando, setGuardando] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -81,7 +84,7 @@ export default function NuevaOCPage() {
       supabase.from('entidades').select('id, razon_social, rut').eq('tipo_proveedor', true).eq('activo', true).order('razon_social'),
       supabase.from('bienes_servicios').select('id, codigo, descripcion, clasificacion, unidad, moneda, afecto_iva_compra, esquema_tributario_compra_id').eq('activo', true).order('descripcion'),
       supabase.from('condiciones_pago').select('id, nombre').eq('activo', true).order('dias'),
-      supabase.from('impuestos').select('id, codigo, nombre, porcentaje, tipo_calculo, flujo, cuenta_id').eq('activo', true).eq('flujo', 'compra').order('codigo'),
+      supabase.from('impuestos').select('id, codigo, nombre, porcentaje, tipo_calculo, tipo, flujo, cuenta_id, fecha_desde, fecha_hasta').eq('activo', true).eq('flujo', 'compra').order('codigo'),
       supabase.from('condiciones_precio').select('id, nombre, abreviatura, tipo, forma_calculo, nivel, requiere_cuenta, cuenta_id').eq('activo', true).order('nombre'),
     ])
 
@@ -93,15 +96,16 @@ export default function NuevaOCPage() {
     setLoading(false)
   }
 
-  async function cargarEsquemaImpuestos(esquemaId: string): Promise<EsquemaImpuesto[]> {
-    if (esquemaImpuestos[esquemaId]) return esquemaImpuestos[esquemaId]
-    const { data } = await supabase
-      .from('esquema_impuestos')
-      .select('impuesto_id, impuestos(id, codigo, nombre, porcentaje, tipo_calculo, flujo, cuenta_id)')
-      .eq('esquema_id', esquemaId)
-    const resultado = ((data || []) as any[]) as EsquemaImpuesto[]
-    setEsquemaImpuestos(prev => ({ ...prev, [esquemaId]: resultado }))
-    return resultado
+  function buscarIVAVigente(): Impuesto | null {
+    const fecha = cabecera.fecha
+    const vigentes = impuestosDisp.filter(i =>
+      i.tipo === 'iva' &&
+      i.flujo === 'compra' &&
+      i.fecha_desde !== null &&
+      i.fecha_desde <= fecha &&
+      (i.fecha_hasta === null || i.fecha_hasta >= fecha)
+    )
+    return vigentes.length > 0 ? vigentes[0] : null
   }
 
   async function resolverCuentaItem(bien: BienServicio): Promise<string | null> {
@@ -121,16 +125,28 @@ export default function NuevaOCPage() {
     if (!bienSeleccionado) return alert('Selecciona un bien o servicio')
     const bien = bienes.find(b => b.id === bienSeleccionado)
     if (!bien) return
+
     const cuentaItem = await resolverCuentaItem(bien)
     let impuestosAuto: ItemImpuesto[] = []
-    if (bien.esquema_tributario_compra_id) {
-      const esqImps = await cargarEsquemaImpuestos(bien.esquema_tributario_compra_id)
-      impuestosAuto = esqImps.filter(ei => ei.impuestos?.flujo === 'compra').map(ei => ({
-        impuesto_id: ei.impuesto_id, codigo: ei.impuestos.codigo,
-        nombre: ei.impuestos.nombre, porcentaje: ei.impuestos.porcentaje,
-        monto_calculado: 0, es_automatico: true, cuenta_id: ei.impuestos.cuenta_id || null
-      }))
+
+    if (bien.afecto_iva_compra) {
+      const iva = buscarIVAVigente()
+      if (!iva) {
+        alert(`El bien "${bien.descripcion}" es afecto a IVA pero no hay un IVA activo y vigente para la fecha ${cabecera.fecha}. Por favor revisa los impuestos en Administración.`)
+        return
+      }
+      impuestosAuto = [{
+        impuesto_id: iva.id,
+        codigo: iva.codigo,
+        nombre: iva.nombre,
+        porcentaje: iva.porcentaje,
+        monto_calculado: 0,
+        es_automatico: true,
+        cuenta_id: iva.cuenta_id || null,
+        tipo: iva.tipo
+      }]
     }
+
     setItems([...items, {
       bien_servicio_id: bien.id, descripcion: bien.descripcion,
       cantidad: 1, precio_unitario: 0, subtotal_bruto: 0,
@@ -159,10 +175,7 @@ export default function NuevaOCPage() {
 
   function actualizarItem(idx: number, campo: string, valor: any) {
     const nuevos = [...items]
-    // Si es Servicio Global, cantidad siempre = 1
-    if (campo === 'cantidad' && nuevos[idx].bien?.unidad === 'Servicio Global') {
-      valor = 1
-    }
+    if (campo === 'cantidad' && nuevos[idx].bien?.unidad === 'Servicio Global') valor = 1
     nuevos[idx] = calcularItem({ ...nuevos[idx], [campo]: valor })
     setItems(nuevos)
   }
@@ -176,7 +189,8 @@ export default function NuevaOCPage() {
       ...nuevos[idx],
       impuestos: [...nuevos[idx].impuestos, {
         impuesto_id: imp.id, codigo: imp.codigo, nombre: imp.nombre,
-        porcentaje: imp.porcentaje, monto_calculado: 0, es_automatico: false, cuenta_id: imp.cuenta_id || null
+        porcentaje: imp.porcentaje, monto_calculado: 0, es_automatico: false,
+        cuenta_id: imp.cuenta_id || null, tipo: imp.tipo
       }]
     })
     setItems(nuevos)
@@ -240,7 +254,7 @@ export default function NuevaOCPage() {
     setCondsCabecera(condsCabecera.map(c => {
       if (c.condicion_precio_id !== condId) return c
       let monto = 0
-      if (c.forma_calculo === 'porcentual') monto = totalNeto * valor / 100
+      if (c.forma_calculo === 'porcentual') monto = totalBruto * valor / 100
       else monto = valor
       return { ...c, valor, monto_calculado: c.tipo === 'descuento' ? -monto : monto }
     }))
@@ -267,13 +281,27 @@ export default function NuevaOCPage() {
     setImpsCabecera(impsCabecera.filter(i => i.impuesto_id !== impId))
   }
 
-  const totalNeto = items.reduce((sum, i) => sum + i.subtotal_bruto, 0)
+  // TOTALES
+  const totalBruto = items.reduce((sum, i) => sum + i.subtotal_bruto, 0)
   const totalCondiciones = condsCabecera.reduce((sum, c) => sum + c.monto_calculado, 0)
-  const totalImpItems = items.reduce((sum, i) => sum + i.impuestos.reduce((s, imp) => s + imp.monto_calculado, 0), 0)
-  const totalImpCab = impsCabecera.reduce((sum, i) => sum + i.monto_calculado, 0)
-  const totalImpuestos = totalImpItems + totalImpCab
-  const totalFinal = totalNeto + totalCondiciones + totalImpuestos
+  const totalNeto = totalBruto + totalCondiciones
+
+  // IVA separado
+  const ivaItems = items.flatMap(i => i.impuestos.filter(imp => imp.tipo === 'iva'))
+  const totalIVA = ivaItems.reduce((sum, imp) => sum + imp.monto_calculado, 0)
+  const ivaInfo = ivaItems.length > 0 ? { porcentaje: ivaItems[0].porcentaje, nombre: ivaItems[0].nombre } : null
+
+  // Imp. Adicionales (no IVA)
+  const totalImpAdicItems = items.reduce((sum, i) =>
+    sum + i.impuestos.filter(imp => imp.tipo !== 'iva').reduce((s, imp) => s + imp.monto_calculado, 0), 0)
+  const totalImpAdicCab = impsCabecera.reduce((sum, i) => sum + i.monto_calculado, 0)
+  const totalImpAdicionales = totalImpAdicItems + totalImpAdicCab
+
+  const totalFinal = totalNeto + totalIVA + totalImpAdicionales
   const fmt = (n: number) => new Intl.NumberFormat('es-CL').format(Math.round(n))
+
+  // Impuestos disponibles para selección manual (excluir IVA)
+  const impuestosAdicionales = impuestosDisp.filter(i => i.tipo !== 'iva')
 
   async function generarNumeroOC() {
     const { data } = await supabase
@@ -281,7 +309,6 @@ export default function NuevaOCPage() {
       .select('numero')
       .order('numero', { ascending: false })
       .limit(1)
-
     if (data && data.length > 0) {
       const ultimo = parseInt(data[0].numero.split('-')[1] || '0')
       return `OC-${String(ultimo + 1).padStart(6, '0')}`
@@ -308,7 +335,7 @@ export default function NuevaOCPage() {
       estado: 'borrador',
       documento_abierto: true,
       total_neto: totalNeto,
-      total_impuestos: totalImpuestos,
+      total_impuestos: totalIVA + totalImpAdicionales,
       total: totalFinal,
       created_by: user?.email,
       updated_by: user?.email,
@@ -462,6 +489,7 @@ export default function NuevaOCPage() {
             <div className="space-y-4">
               {items.map((item, idx) => {
                 const esServicioGlobal = item.bien?.unidad === 'Servicio Global'
+                const esAfecto = item.bien?.afecto_iva_compra === true
                 return (
                   <div key={idx} className="border border-gray-100 rounded-lg p-4">
                     <div className="grid grid-cols-12 gap-2 items-center mb-3">
@@ -470,7 +498,12 @@ export default function NuevaOCPage() {
                         <p className="text-sm font-semibold text-gray-700">{idx + 1}</p>
                       </div>
                       <div className="col-span-4">
-                        <label className="text-xs text-gray-400 block mb-1">Descripción</label>
+                        <label className="text-xs text-gray-400 block mb-1">
+                          Descripción
+                          <span className={`ml-2 px-1 py-0.5 rounded text-xs font-medium ${esAfecto ? 'bg-blue-50 text-blue-600' : 'bg-gray-100 text-gray-500'}`}>
+                            {esAfecto ? 'A' : 'E'}
+                          </span>
+                        </label>
                         <input value={item.descripcion} onChange={e => actualizarItem(idx, 'descripcion', e.target.value)} className="w-full border border-gray-200 rounded px-2 py-1 text-xs" />
                       </div>
                       <div className="col-span-1 text-center">
@@ -538,25 +571,41 @@ export default function NuevaOCPage() {
                       ))}
                     </div>
 
-                    {/* Impuestos del ítem */}
-                    <div className="mt-2 pl-2 border-l-2 border-blue-100">
+                    {/* IVA automático */}
+                    {item.impuestos.filter(imp => imp.tipo === 'iva').length > 0 && (
+                      <div className="mt-2 pl-2 border-l-2 border-blue-200">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-xs text-blue-700 font-medium">IVA (automático)</span>
+                        </div>
+                        {item.impuestos.filter(imp => imp.tipo === 'iva').map(imp => (
+                          <div key={imp.impuesto_id} className="flex items-center gap-2 mb-1">
+                            <span className="text-xs px-1.5 py-0.5 rounded bg-blue-50 text-blue-700">{imp.codigo}</span>
+                            <span className="text-xs text-gray-500">{imp.porcentaje}%</span>
+                            <span className="text-xs font-mono text-gray-600">{fmt(imp.monto_calculado)}</span>
+                            <span className="text-xs text-gray-400">(auto)</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Imp. Adicionales del ítem */}
+                    <div className="mt-2 pl-2 border-l-2 border-orange-100">
                       <div className="flex items-center gap-2 mb-2">
-                        <span className="text-xs text-blue-700 font-medium">Impuestos</span>
+                        <span className="text-xs text-orange-700 font-medium">Imp. Adicionales</span>
                         <select onChange={e => { if (e.target.value) { agregarImpuestoItem(idx, e.target.value); e.target.value = '' } }}
                           className="text-xs border border-gray-200 rounded px-2 py-0.5 bg-white">
                           <option value="">+ agregar</option>
-                          {impuestosDisp.map(i => (
+                          {impuestosAdicionales.map(i => (
                             <option key={i.id} value={i.id}>{i.codigo} · {i.nombre}</option>
                           ))}
                         </select>
                       </div>
-                      {item.impuestos.map(imp => (
+                      {item.impuestos.filter(imp => imp.tipo !== 'iva').map(imp => (
                         <div key={imp.impuesto_id} className="flex items-center gap-2 mb-1">
-                          <span className="text-xs px-1.5 py-0.5 rounded bg-blue-50 text-blue-700">{imp.codigo}</span>
+                          <span className="text-xs px-1.5 py-0.5 rounded bg-orange-50 text-orange-700">{imp.codigo}</span>
                           <span className="text-xs text-gray-500">{imp.porcentaje}%</span>
                           <span className="text-xs font-mono text-gray-600">{fmt(imp.monto_calculado)}</span>
-                          {imp.es_automatico && <span className="text-xs text-gray-400">(auto)</span>}
-                          {!imp.es_automatico && <button onClick={() => eliminarImpuestoItem(idx, imp.impuesto_id)} className="text-red-400 text-xs">✕</button>}
+                          <button onClick={() => eliminarImpuestoItem(idx, imp.impuesto_id)} className="text-red-400 text-xs">✕</button>
                         </div>
                       ))}
                     </div>
@@ -596,21 +645,21 @@ export default function NuevaOCPage() {
           ))}
         </div>
 
-        {/* IMPUESTOS CABECERA */}
+        {/* IMP. ADICIONALES CABECERA */}
         <div className="bg-white rounded-xl border border-gray-100 p-6 mb-4">
-          <h2 className="text-sm font-semibold text-gray-600 mb-4 uppercase tracking-wide">Impuestos globales</h2>
+          <h2 className="text-sm font-semibold text-gray-600 mb-4 uppercase tracking-wide">Imp. Adicionales globales</h2>
           <div className="flex gap-3 mb-3">
             <select value={impSelCab} onChange={e => setImpSelCab(e.target.value)} className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm">
-              <option value="">— seleccione impuesto —</option>
-              {impuestosDisp.map(i => <option key={i.id} value={i.id}>{i.codigo} · {i.nombre} ({i.porcentaje}%)</option>)}
+              <option value="">— seleccione impuesto adicional —</option>
+              {impuestosAdicionales.map(i => <option key={i.id} value={i.id}>{i.codigo} · {i.nombre} ({i.porcentaje}%)</option>)}
             </select>
-            <button onClick={agregarImpCabecera} className="bg-blue-500 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-600">+ Agregar</button>
+            <button onClick={agregarImpCabecera} className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm hover:bg-orange-600">+ Agregar</button>
           </div>
           {impsCabecera.length === 0 ? (
-            <p className="text-xs text-gray-400">Sin impuestos globales</p>
+            <p className="text-xs text-gray-400">Sin impuestos adicionales globales</p>
           ) : impsCabecera.map(i => (
             <div key={i.impuesto_id} className="flex items-center gap-3 mb-2">
-              <span className="text-xs px-2 py-0.5 rounded bg-blue-50 text-blue-700">{i.codigo}</span>
+              <span className="text-xs px-2 py-0.5 rounded bg-orange-50 text-orange-700">{i.codigo}</span>
               <span className="text-sm text-gray-600">{i.nombre} · {i.porcentaje}%</span>
               <span className="text-sm font-mono text-gray-700">{fmt(i.monto_calculado)}</span>
               <button onClick={() => eliminarImpCabecera(i.impuesto_id)} className="text-red-400 text-xs">✕</button>
@@ -624,24 +673,36 @@ export default function NuevaOCPage() {
             <div className="w-72 space-y-2 text-sm">
               <div className="flex justify-between text-gray-600">
                 <span>Total bruto ítems</span>
-                <span className="font-mono">{fmt(totalNeto)}</span>
+                <span className="font-mono">{fmt(totalBruto)}</span>
               </div>
               {condsCabecera.map(c => (
                 <div key={c.condicion_precio_id} className="flex justify-between text-gray-500">
-                  <span>{c.tipo === 'descuento' ? '-' : '+'} {c.nombre}</span>
+                  <span>{c.tipo === 'descuento' ? '−' : '+'} {c.nombre}</span>
                   <span className="font-mono">{fmt(Math.abs(c.monto_calculado))}</span>
                 </div>
               ))}
-              <div className="flex justify-between text-gray-500">
-                <span>Impuestos ítems</span>
-                <span className="font-mono">{fmt(totalImpItems)}</span>
+              <div className="flex justify-between text-gray-700 font-medium border-t border-gray-100 pt-2">
+                <span>Total neto</span>
+                <span className="font-mono">{fmt(totalNeto)}</span>
               </div>
+              {totalIVA > 0 && ivaInfo && (
+                <div className="flex justify-between text-blue-600">
+                  <span>+ IVA {ivaInfo.porcentaje}%</span>
+                  <span className="font-mono">{fmt(totalIVA)}</span>
+                </div>
+              )}
               {impsCabecera.map(i => (
-                <div key={i.impuesto_id} className="flex justify-between text-gray-500">
+                <div key={i.impuesto_id} className="flex justify-between text-orange-600">
                   <span>+ {i.nombre}</span>
                   <span className="font-mono">{fmt(i.monto_calculado)}</span>
                 </div>
               ))}
+              {totalImpAdicItems > 0 && (
+                <div className="flex justify-between text-orange-600">
+                  <span>+ Imp. Adicionales ítems</span>
+                  <span className="font-mono">{fmt(totalImpAdicItems)}</span>
+                </div>
+              )}
               <div className="flex justify-between font-semibold text-gray-800 border-t border-gray-100 pt-2 text-base">
                 <span>Total</span>
                 <span className="font-mono">{fmt(totalFinal)}</span>
