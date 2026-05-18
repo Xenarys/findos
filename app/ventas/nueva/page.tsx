@@ -196,7 +196,7 @@ export default function NuevoPVPage() {
       else if (c.forma_calculo === 'monto_unidad') monto = c.valor * item.cantidad
       if (c.tipo === 'descuento') base_imponible -= monto
       else base_imponible += monto
-      return { ...c, monto_calculado: monto }
+      return { ...c, monto_calculado: c.tipo === 'descuento' ? -monto : monto }
     })
     const impuestos = item.impuestos.map(imp => ({
       ...imp, monto_calculado: Math.round(base_imponible * imp.porcentaje / 100)
@@ -314,7 +314,9 @@ export default function NuevoPVPage() {
 
   const totalBruto = items.reduce((sum, i) => sum + i.subtotal_bruto, 0)
   const totalCondiciones = condsCabecera.reduce((sum, c) => sum + c.monto_calculado, 0)
-  const totalNeto = totalBruto + totalCondiciones
+  const totalCondicionesItems = items.reduce((sum, i) => 
+  sum + i.condiciones.reduce((s, c) => s + c.monto_calculado, 0), 0)
+const totalNeto = totalBruto + totalCondiciones + totalCondicionesItems
   const ivaItems = items.flatMap(i => i.impuestos.filter(imp => imp.tipo === 'iva'))
   const totalIVA = ivaItems.reduce((sum, imp) => sum + imp.monto_calculado, 0)
   const ivaInfo = ivaItems.length > 0 ? { porcentaje: ivaItems[0].porcentaje, nombre: ivaItems[0].nombre } : null
