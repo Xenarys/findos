@@ -268,7 +268,7 @@ export default function EditarOCPage() {
       else if (c.forma_calculo === 'monto_unidad') monto = c.valor * item.cantidad
       if (c.tipo === 'descuento') base_imponible -= monto
       else base_imponible += monto
-      return { ...c, monto_calculado: monto }
+      return { ...c, monto_calculado: c.tipo === 'descuento' ? -monto : monto }
     })
     const impuestos = item.impuestos.map(imp => ({
       ...imp, monto_calculado: Math.round(base_imponible * imp.porcentaje / 100)
