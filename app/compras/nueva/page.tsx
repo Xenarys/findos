@@ -61,6 +61,7 @@ export default function NuevaOCPage() {
   const [condicionesPago, setCondicionesPago] = useState<CondicionPago[]>([])
   const [impuestosDisp, setImpuestosDisp] = useState<Impuesto[]>([])
   const [condPrecioDisp, setCondPrecioDisp] = useState<CondicionPrecio[]>([])
+  const [esquemaImpuestos, setEsquemaImpuestos] = useState<Record<string, any[]>>({}) // ← CAMBIO 1
   const [operacionC1G, setOperacionC1G] = useState<string | null>(null)
   const [guardando, setGuardando] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -96,6 +97,18 @@ export default function NuevaOCPage() {
     setLoading(false)
   }
 
+  // ← CAMBIO 2: función para cargar esquema
+  async function cargarEsquemaImpuestos(esquemaId: string): Promise<any[]> {
+    if (esquemaImpuestos[esquemaId]) return esquemaImpuestos[esquemaId]
+    const { data } = await supabase
+      .from('esquema_impuestos')
+      .select('impuesto_id, impuestos(id, codigo, nombre, porcentaje, tipo, flujo, cuenta_id)')
+      .eq('esquema_id', esquemaId)
+    const resultado = (data || []) as any[]
+    setEsquemaImpuestos(prev => ({ ...prev, [esquemaId]: resultado }))
+    return resultado
+  }
+
   function buscarIVAVigente(): Impuesto | null {
     const fecha = cabecera.fecha
     const vigentes = impuestosDisp.filter(i =>
@@ -121,6 +134,7 @@ export default function NuevaOCPage() {
     return cc?.cuenta_id || null
   }
 
+  // ← CAMBIO 3: agregarItem con esquema tributario de compra
   async function agregarItem() {
     if (!bienSeleccionado) return alert('Selecciona un bien o servicio')
     const bien = bienes.find(b => b.id === bienSeleccionado)
@@ -136,15 +150,28 @@ export default function NuevaOCPage() {
         return
       }
       impuestosAuto = [{
-        impuesto_id: iva.id,
-        codigo: iva.codigo,
-        nombre: iva.nombre,
-        porcentaje: iva.porcentaje,
-        monto_calculado: 0,
-        es_automatico: true,
-        cuenta_id: iva.cuenta_id || null,
-        tipo: iva.tipo
+        impuesto_id: iva.id, codigo: iva.codigo, nombre: iva.nombre,
+        porcentaje: iva.porcentaje, monto_calculado: 0,
+        es_automatico: true, cuenta_id: iva.cuenta_id || null, tipo: iva.tipo
       }]
+    }
+
+    // Imp. Adicionales desde esquema tributario de compra
+    if (bien.esquema_tributario_compra_id) {
+      const esqImps = await cargarEsquemaImpuestos(bien.esquema_tributario_compra_id)
+      const adicionalesEsquema = esqImps
+        .filter(ei => ei.impuestos?.flujo === 'compra' && ei.impuestos?.tipo !== 'iva')
+        .map(ei => ({
+          impuesto_id: ei.impuesto_id,
+          codigo: ei.impuestos.codigo,
+          nombre: ei.impuestos.nombre,
+          porcentaje: ei.impuestos.porcentaje,
+          monto_calculado: 0,
+          es_automatico: true,
+          cuenta_id: ei.impuestos.cuenta_id || null,
+          tipo: ei.impuestos.tipo
+        }))
+      impuestosAuto = [...impuestosAuto, ...adicionalesEsquema]
     }
 
     setItems([...items, {
@@ -281,26 +308,18 @@ export default function NuevaOCPage() {
     setImpsCabecera(impsCabecera.filter(i => i.impuesto_id !== impId))
   }
 
-  // TOTALES
   const totalBruto = items.reduce((sum, i) => sum + i.subtotal_bruto, 0)
   const totalCondiciones = condsCabecera.reduce((sum, c) => sum + c.monto_calculado, 0)
   const totalNeto = totalBruto + totalCondiciones
-
-  // IVA separado
   const ivaItems = items.flatMap(i => i.impuestos.filter(imp => imp.tipo === 'iva'))
   const totalIVA = ivaItems.reduce((sum, imp) => sum + imp.monto_calculado, 0)
   const ivaInfo = ivaItems.length > 0 ? { porcentaje: ivaItems[0].porcentaje, nombre: ivaItems[0].nombre } : null
-
-  // Imp. Adicionales (no IVA)
   const totalImpAdicItems = items.reduce((sum, i) =>
     sum + i.impuestos.filter(imp => imp.tipo !== 'iva').reduce((s, imp) => s + imp.monto_calculado, 0), 0)
   const totalImpAdicCab = impsCabecera.reduce((sum, i) => sum + i.monto_calculado, 0)
   const totalImpAdicionales = totalImpAdicItems + totalImpAdicCab
-
   const totalFinal = totalNeto + totalIVA + totalImpAdicionales
   const fmt = (n: number) => new Intl.NumberFormat('es-CL').format(Math.round(n))
-
-  // Impuestos disponibles para selección manual (excluir IVA)
   const impuestosAdicionales = impuestosDisp.filter(i => i.tipo !== 'iva')
 
   async function generarNumeroOC() {
@@ -574,11 +593,9 @@ export default function NuevaOCPage() {
                     {/* IVA automático */}
                     {item.impuestos.filter(imp => imp.tipo === 'iva').length > 0 && (
                       <div className="mt-2 pl-2 border-l-2 border-blue-200">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-xs text-blue-700 font-medium">IVA (automático)</span>
-                        </div>
+                        <span className="text-xs text-blue-700 font-medium">IVA (automático)</span>
                         {item.impuestos.filter(imp => imp.tipo === 'iva').map(imp => (
-                          <div key={imp.impuesto_id} className="flex items-center gap-2 mb-1">
+                          <div key={imp.impuesto_id} className="flex items-center gap-2 mb-1 mt-1">
                             <span className="text-xs px-1.5 py-0.5 rounded bg-blue-50 text-blue-700">{imp.codigo}</span>
                             <span className="text-xs text-gray-500">{imp.porcentaje}%</span>
                             <span className="text-xs font-mono text-gray-600">{fmt(imp.monto_calculado)}</span>
@@ -605,7 +622,8 @@ export default function NuevaOCPage() {
                           <span className="text-xs px-1.5 py-0.5 rounded bg-orange-50 text-orange-700">{imp.codigo}</span>
                           <span className="text-xs text-gray-500">{imp.porcentaje}%</span>
                           <span className="text-xs font-mono text-gray-600">{fmt(imp.monto_calculado)}</span>
-                          <button onClick={() => eliminarImpuestoItem(idx, imp.impuesto_id)} className="text-red-400 text-xs">✕</button>
+                          {!imp.es_automatico && <button onClick={() => eliminarImpuestoItem(idx, imp.impuesto_id)} className="text-red-400 text-xs">✕</button>}
+                          {imp.es_automatico && <span className="text-xs text-gray-400">(auto)</span>}
                         </div>
                       ))}
                     </div>
