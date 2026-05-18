@@ -388,7 +388,9 @@ export default function EditarPVPage() {
 
   const totalBruto = items.reduce((sum, i) => sum + i.subtotal_bruto, 0)
   const totalCondsCab = condsCabecera.reduce((sum, c) => sum + c.monto_calculado, 0)
-  const totalNeto = totalBruto + totalCondsCab
+  const totalCondicionesItems = items.reduce((sum, i) => 
+  sum + i.condiciones.reduce((s, c) => s + c.monto_calculado, 0), 0)
+const totalNeto = totalBruto + totalCondsCab + totalCondicionesItems
   const ivaItems = items.flatMap(i => i.impuestos.filter(imp => imp.tipo === 'iva'))
   const totalIVA = ivaItems.reduce((sum, imp) => sum + imp.monto_calculado, 0)
   const ivaInfo = ivaItems.length > 0 ? { porcentaje: ivaItems[0].porcentaje } : null
