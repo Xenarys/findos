@@ -271,18 +271,32 @@ export default function DetalleOCPage() {
                 <span>Total neto</span>
                 <span className="font-mono">{fmt(totalNeto)}</span>
               </div>
-              {impuestosIVA.map(i => (
-                <div key={i.id} className="flex justify-between text-blue-600">
-                  <span>+ IVA {i.porcentaje}%</span>
-                  <span className="font-mono">{fmt(i.monto_calculado)}</span>
-                </div>
-              ))}
-              {impuestosAdicionales.map(i => (
-                <div key={i.id} className="flex justify-between text-orange-600">
-                  <span>+ {i.impuestos?.nombre} {i.porcentaje}%</span>
-                  <span className="font-mono">{fmt(i.monto_calculado)}</span>
-                </div>
-              ))}
+              {Object.values(
+  impuestosIVA.reduce((acc: any, i) => {
+    const key = i.impuesto_id
+    if (!acc[key]) acc[key] = { nombre: `IVA ${i.porcentaje}%`, total: 0 }
+    acc[key].total += i.monto_calculado
+    return acc
+  }, {})
+).map((g: any, idx) => (
+  <div key={idx} className="flex justify-between text-blue-600">
+    <span>+ {g.nombre}</span>
+    <span className="font-mono">{fmt(g.total)}</span>
+  </div>
+))}
+{Object.values(
+  impuestosAdicionales.reduce((acc: any, i) => {
+    const key = i.impuesto_id
+    if (!acc[key]) acc[key] = { nombre: `${i.impuestos?.nombre} ${i.porcentaje}%`, total: 0 }
+    acc[key].total += i.monto_calculado
+    return acc
+  }, {})
+).map((g: any, idx) => (
+  <div key={idx} className="flex justify-between text-orange-600">
+    <span>+ {g.nombre}</span>
+    <span className="font-mono">{fmt(g.total)}</span>
+  </div>
+))}
               <div className="border-t border-gray-100 pt-2 flex justify-between font-semibold text-gray-800 text-base">
                 <span>Total</span>
                 <span className="font-mono">{fmt(totalFinal)}</span>
