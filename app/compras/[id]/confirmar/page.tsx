@@ -177,51 +177,42 @@ export default function ConfirmarOCPage() {
   }
 
   function calcularMontoConfirmacion(item: ItemConfirmar) {
-    const subtotal_bruto_conf = item.es_servicio_global
-      ? item.monto_a_confirmar
-      : item.cantidad_confirmada * item.precio_unitario
+  const subtotal_bruto_conf = item.es_servicio_global
+    ? item.monto_a_confirmar
+    : item.cantidad_confirmada * item.precio_unitario
 
-    const proporcion = item.es_servicio_global
-      ? item.monto_a_confirmar / item.precio_unitario
-      : item.cantidad_confirmada / item.cantidad_original
+  const proporcion = item.es_servicio_global
+    ? item.monto_a_confirmar / item.precio_unitario
+    : item.cantidad_confirmada / item.cantidad_original
 
-    let descuentos_item = 0
-    item.condiciones.forEach(c => {
-      if (c.tipo === 'descuento') {
-        let monto = 0
-        if (c.forma_calculo === 'porcentual') {
-          monto = subtotal_bruto_conf * c.valor / 100
-        } else if (c.forma_calculo === 'monto_fijo') {
-          monto = c.valor * proporcion
-        } else if (c.forma_calculo === 'monto_unidad') {
-          monto = c.valor * (item.es_servicio_global ? 1 : item.cantidad_confirmada)
-        }
-        descuentos_item += monto
-      }
-    })
+  let ajustes_item = 0
+  item.condiciones.forEach(c => {
+    let monto = 0
+    if (c.forma_calculo === 'porcentual') monto = subtotal_bruto_conf * c.valor / 100
+    else if (c.forma_calculo === 'monto_fijo') monto = c.valor * proporcion
+    else if (c.forma_calculo === 'monto_unidad') monto = c.valor * (item.es_servicio_global ? 1 : item.cantidad_confirmada)
+    if (c.tipo === 'descuento') ajustes_item -= monto
+    else ajustes_item += monto
+  })
 
-    let descuentos_cabecera = 0
-    condicionesCabecera.forEach(c => {
-      if (c.tipo === 'descuento') {
-        let monto = 0
-        if (c.forma_calculo === 'porcentual') {
-          monto = subtotal_bruto_conf * c.valor / 100
-        } else if (c.forma_calculo === 'monto_fijo') {
-          monto = c.valor * proporcion
-        } else if (c.forma_calculo === 'monto_unidad') {
-          monto = c.valor * (item.es_servicio_global ? 1 : item.cantidad_confirmada)
-        }
-        descuentos_cabecera += monto
-      }
-    })
+  let ajustes_cabecera = 0
+  condicionesCabecera.forEach(c => {
+    let monto = 0
+    if (c.forma_calculo === 'porcentual') monto = subtotal_bruto_conf * c.valor / 100
+    else if (c.forma_calculo === 'monto_fijo') monto = c.valor * proporcion
+    else if (c.forma_calculo === 'monto_unidad') monto = c.valor * (item.es_servicio_global ? 1 : item.cantidad_confirmada)
+    if (c.tipo === 'descuento') ajustes_cabecera -= monto
+    else ajustes_cabecera += monto
+  })
 
-    return {
-      subtotal_bruto: subtotal_bruto_conf,
-      descuentos_item,
-      descuentos_cabecera,
-      subtotal_neto: subtotal_bruto_conf - descuentos_item - descuentos_cabecera
-    }
+  return {
+    subtotal_bruto: subtotal_bruto_conf,
+    descuentos_item: ajustes_item,
+    descuentos_cabecera: ajustes_cabecera,
+    subtotal_neto: subtotal_bruto_conf + ajustes_item + ajustes_cabecera
   }
+}
+ 
 
   const fmt = (n: number) => new Intl.NumberFormat('es-CL').format(Math.round(n))
 
@@ -423,18 +414,18 @@ export default function ConfirmarOCPage() {
                             <span className="text-gray-600">Subtotal bruto:</span>
                             <span className="text-right font-mono text-gray-700">{fmt(montos.subtotal_bruto)}</span>
                           </div>
-                          {montos.descuentos_item > 0 && (
-                            <div className="grid grid-cols-2 gap-2 mb-1">
-                              <span className="text-gray-600">- Desc. ítem:</span>
-                              <span className="text-right font-mono text-gray-700">{fmt(montos.descuentos_item)}</span>
-                            </div>
-                          )}
-                          {montos.descuentos_cabecera > 0 && (
-                            <div className="grid grid-cols-2 gap-2 mb-1">
-                              <span className="text-gray-600">- Desc. global:</span>
-                              <span className="text-right font-mono text-gray-700">{fmt(montos.descuentos_cabecera)}</span>
-                            </div>
-                          )}
+                          {montos.descuentos_item !== 0 && (
+  <div className="grid grid-cols-2 gap-2 mb-1">
+    <span className="text-gray-600">{montos.descuentos_item < 0 ? '- Ajuste ítem:' : '+ Ajuste ítem:'}</span>
+    <span className="text-right font-mono text-gray-700">{fmt(Math.abs(montos.descuentos_item))}</span>
+  </div>
+)}
+{montos.descuentos_cabecera !== 0 && (
+  <div className="grid grid-cols-2 gap-2 mb-1">
+    <span className="text-gray-600">{montos.descuentos_cabecera < 0 ? '- Ajuste global:' : '+ Ajuste global:'}</span>
+    <span className="text-right font-mono text-gray-700">{fmt(Math.abs(montos.descuentos_cabecera))}</span>
+  </div>
+)}
                           <div className="border-t border-gray-200 pt-1 grid grid-cols-2 gap-2">
                             <span className="text-gray-700 font-medium">= Neto:</span>
                             <span className="text-right font-mono font-medium text-gray-800">{fmt(montos.subtotal_neto)}</span>
