@@ -229,7 +229,7 @@ export default function DetalleOCPage() {
               {condiciones.map(c => (
                 <div key={c.id} className="flex justify-between text-sm">
                   <span className="text-gray-700">{c.tipo === 'descuento' ? '−' : '+'} {c.condiciones_precio?.nombre}</span>
-                  <span className="font-mono text-gray-800">{fmt(c.monto_calculado)}</span>
+                  <span className="font-mono text-gray-800">{fmt(Math.abs(c.monto_calculado))}</span>
                 </div>
               ))}
             </div>
@@ -262,11 +262,11 @@ export default function DetalleOCPage() {
                 <span className="font-mono">{fmt(totalBruto)}</span>
               </div>
               {totalCondiciones !== 0 && (
-                <div className="flex justify-between text-gray-600">
-                  <span>Condiciones</span>
-                  <span className="font-mono">{fmt(totalCondiciones)}</span>
-                </div>
-              )}
+  <div className="flex justify-between text-gray-600">
+    <span>{totalCondiciones < 0 ? '− ' : '+ '}Condiciones</span>
+    <span className="font-mono">{fmt(Math.abs(totalCondiciones))}</span>
+  </div>
+)}
               <div className="flex justify-between text-gray-700 font-medium border-t border-gray-100 pt-2">
                 <span>Total neto</span>
                 <span className="font-mono">{fmt(totalNeto)}</span>

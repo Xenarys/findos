@@ -752,49 +752,57 @@ const totalNeto = totalBruto + totalCondsCab + totalCondicionesItems
         </div>
 
         {/* TOTALES */}
-        <div className="bg-white rounded-xl border border-gray-100 p-6 mb-6">
-          <div className="flex justify-end">
-            <div className="w-72 space-y-2 text-sm">
-              <div className="flex justify-between text-gray-600">
-                <span>Total bruto ítems</span>
-                <span className="font-mono">{fmt(totalBruto)}</span>
-              </div>
-              {condsCabecera.map(c => (
-                <div key={c.condicion_precio_id} className="flex justify-between text-gray-500">
-                  <span>{c.tipo === 'descuento' ? '−' : '+'} {c.nombre}</span>
-                  <span className="font-mono">{fmt(Math.abs(c.monto_calculado))}</span>
-                </div>
-              ))}
-              <div className="flex justify-between text-gray-700 font-medium border-t border-gray-100 pt-2">
-                <span>Total neto</span>
-                <span className="font-mono">{fmt(totalNeto)}</span>
-              </div>
-              {totalIVA > 0 && ivaInfo && (
-                <div className="flex justify-between text-blue-600">
-                  <span>+ IVA {ivaInfo.porcentaje}%</span>
-                  <span className="font-mono">{fmt(totalIVA)}</span>
-                </div>
-              )}
-              {impsCabecera.map(i => (
-                <div key={i.impuesto_id} className="flex justify-between text-orange-600">
-                  <span>+ {i.nombre}</span>
-                  <span className="font-mono">{fmt(i.monto_calculado)}</span>
-                </div>
-              ))}
-              {totalImpAdicItems > 0 && (
-                <div className="flex justify-between text-orange-600">
-                  <span>+ Imp. Adicionales ítems</span>
-                  <span className="font-mono">{fmt(totalImpAdicItems)}</span>
-                </div>
-              )}
-              <div className="flex justify-between font-semibold text-gray-800 border-t border-gray-100 pt-2 text-base">
-                <span>Total</span>
-                <span className="font-mono">{fmt(totalFinal)}</span>
-              </div>
-            </div>
-          </div>
-        </div>
+<div className="bg-white rounded-xl border border-gray-100 p-6 mb-6">
+  <div className="flex justify-end">
+    <div className="w-72 space-y-2 text-sm">
+      <div className="flex justify-between text-gray-600">
+        <span>Total bruto ítems</span>
+        <span className="font-mono">{fmt(totalBruto)}</span>
+      </div>
 
+      {/* NUEVO: condiciones de ítems */}
+      {totalCondicionesItems !== 0 && (
+        <div className="flex justify-between text-gray-500">
+          <span>{totalCondicionesItems < 0 ? '− ' : '+ '}Condiciones ítems</span>
+          <span className="font-mono">{fmt(Math.abs(totalCondicionesItems))}</span>
+        </div>
+      )}
+
+      {condsCabecera.map(c => (
+        <div key={c.condicion_precio_id} className="flex justify-between text-gray-500">
+          <span>{c.tipo === 'descuento' ? '−' : '+'} {c.nombre}</span>
+          <span className="font-mono">{fmt(Math.abs(c.monto_calculado))}</span>
+        </div>
+      ))}
+      <div className="flex justify-between text-gray-700 font-medium border-t border-gray-100 pt-2">
+        <span>Total neto</span>
+        <span className="font-mono">{fmt(totalNeto)}</span>
+      </div>
+      {totalIVA > 0 && ivaInfo && (
+        <div className="flex justify-between text-blue-600">
+          <span>+ IVA {ivaInfo.porcentaje}%</span>
+          <span className="font-mono">{fmt(totalIVA)}</span>
+        </div>
+      )}
+      {impsCabecera.map(i => (
+        <div key={i.impuesto_id} className="flex justify-between text-orange-600">
+          <span>+ {i.nombre}</span>
+          <span className="font-mono">{fmt(i.monto_calculado)}</span>
+        </div>
+      ))}
+      {totalImpAdicItems > 0 && (
+        <div className="flex justify-between text-orange-600">
+          <span>+ Imp. Adicionales ítems</span>
+          <span className="font-mono">{fmt(totalImpAdicItems)}</span>
+        </div>
+      )}
+      <div className="flex justify-between font-semibold text-gray-800 border-t border-gray-100 pt-2 text-base">
+        <span>Total</span>
+        <span className="font-mono">{fmt(totalFinal)}</span>
+      </div>
+    </div>
+  </div>
+</div>
         {/* ACCIONES */}
         <div className="flex justify-end gap-3">
           <button onClick={() => router.push(`/compras/${id}`)} className="px-4 py-2 text-sm border border-gray-200 rounded-lg text-gray-600">Cancelar</button>

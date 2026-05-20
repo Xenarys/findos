@@ -29,6 +29,7 @@ export default function Navbar() {
     { label: 'Ventas', href: '/ventas' },
     { label: 'Confirmaciones OC', href: '/compras/confirmaciones' },
     { label: 'Confirmaciones PV', href: '/ventas/confirmaciones' },
+    { label: 'Facturas', href: '/facturas' },
     { label: 'Contactos', href: '/contactos' },
     { label: 'Plan de Cuentas', href: '/plan-cuentas' },
     { label: 'Administración', href: '/admin' },

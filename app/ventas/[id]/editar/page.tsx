@@ -759,6 +759,12 @@ const totalNeto = totalBruto + totalCondsCab + totalCondicionesItems
                 <span>Total bruto ítems</span>
                 <span className="font-mono">{fmt(totalBruto)}</span>
               </div>
+              {totalCondicionesItems !== 0 && (
+  <div className="flex justify-between text-gray-500">
+    <span>{totalCondicionesItems < 0 ? '− ' : '+ '}Condiciones ítems</span>
+    <span className="font-mono">{fmt(Math.abs(totalCondicionesItems))}</span>
+  </div>
+)}
               {condsCabecera.map(c => (
                 <div key={c.condicion_precio_id} className="flex justify-between text-gray-500">
                   <span>{c.tipo === 'descuento' ? '−' : '+'} {c.nombre}</span>
